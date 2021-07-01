@@ -1,7 +1,12 @@
-stubborn-io
+stream-reconnect
 ===========
 
-This crate provides io traits/structs that automatically recover from potential disconnections/interruptions.
+> WIP
+
+This crate provides a stream struct that automatically recover from potential disconnections/interruptions.
+
+This is a fork of [stubborn-io](https://github.com/craftytrickster/stubborn-io), which is built for structs implementing
+tokio AsyncRead/AsyncWrite traits.
 
 To use with your project, add the following to your Cargo.toml:
 
