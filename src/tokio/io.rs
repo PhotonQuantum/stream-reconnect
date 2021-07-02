@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::io::{self, ErrorKind, IoSlice};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
@@ -8,50 +7,28 @@ use std::time::Duration;
 
 use futures::{ready, Sink, Stream};
 use log::{error, info};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::time::sleep;
 
 use crate::config::ReconnectOptions;
+use std::error::Error;
 
 /// Trait that should be implemented for an [AsyncRead] and/or [AsyncWrite]
 /// item to enable it to work with the [StubbornIo] struct.
-pub trait UnderlyingIo<C>: Sized + Unpin
+pub trait UnderlyingIo<C, E>: Sized + Unpin
 where
     C: Clone + Send + Unpin,
+    E: Error,
 {
     /// The creation function is used by StubbornIo in order to establish both the initial IO connection
     /// in addition to performing reconnects.
-    fn establish(ctor_arg: C) -> Pin<Box<dyn Future<Output = io::Result<Self>> + Send>>;
+    fn establish(ctor_arg: C) -> Pin<Box<dyn Future<Output = Result<Self, E>> + Send>>;
 
     /// When IO items experience an [io::Error](io::Error) during operation, it does not necessarily mean
     /// it is a disconnect/termination (ex: WouldBlock). This trait provides sensible defaults to classify
     /// which errors are considered "disconnects", but this can be overridden based on the user's needs.
-    fn is_disconnect_error(&self, err: &io::Error) -> bool {
-        use std::io::ErrorKind::*;
+    fn is_disconnect_error(&self, err: &E) -> bool;
 
-        matches!(
-            err.kind(),
-            NotFound
-                | PermissionDenied
-                | ConnectionRefused
-                | ConnectionReset
-                | ConnectionAborted
-                | NotConnected
-                | AddrInUse
-                | AddrNotAvailable
-                | BrokenPipe
-                | AlreadyExists
-        )
-    }
-
-    /// If the underlying IO item implements AsyncRead, this method allows the user to specify
-    /// if a technically successful read actually means that the connect is closed.
-    /// For example, tokio's TcpStream successfully performs a read of 0 bytes when closed.
-    fn is_final_read(&self, bytes_read: usize) -> bool {
-        // definitely true for tcp, perhaps true for other io as well,
-        // indicative of EOF hit
-        bytes_read == 0
-    }
+    fn exhuast_err() -> E;
 }
 
 struct AttemptsTracker {
@@ -59,16 +36,18 @@ struct AttemptsTracker {
     retries_remaining: Box<dyn Iterator<Item = Duration> + Send>,
 }
 
-struct ReconnectStatus<T, C> {
+struct ReconnectStatus<T, C, E> {
     attempts_tracker: AttemptsTracker,
-    reconnect_attempt: Pin<Box<dyn Future<Output = io::Result<T>> + Send>>,
+    reconnect_attempt: Pin<Box<dyn Future<Output = Result<T, E>> + Send>>,
     _phantom_data: PhantomData<C>,
+    _phantom_data_2: PhantomData<E>,
 }
 
-impl<T, C> ReconnectStatus<T, C>
+impl<T, C, E> ReconnectStatus<T, C, E>
 where
-    T: UnderlyingIo<C>,
+    T: UnderlyingIo<C, E>,
     C: Clone + Send + Unpin + 'static,
+    E: Error + Unpin,
 {
     pub fn new(options: &ReconnectOptions) -> Self {
         ReconnectStatus {
@@ -78,6 +57,7 @@ where
             },
             reconnect_attempt: Box::pin(async { unreachable!("Not going to happen") }),
             _phantom_data: PhantomData,
+            _phantom_data_2: PhantomData,
         }
     }
 }
@@ -85,28 +65,20 @@ where
 /// The StubbornIo is a wrapper over a tokio AsyncRead/AsyncWrite item that will automatically
 /// invoke the [UnderlyingIo::establish] upon initialization and when a reconnect is needed.
 /// Because it implements deref, you are able to invoke all of the original methods on the wrapped IO.
-pub struct StubbornIo<T, C> {
-    status: Status<T, C>,
+pub struct StubbornIo<T, C, E> {
+    status: Status<T, C, E>,
     underlying_io: T,
     options: ReconnectOptions,
     ctor_arg: C,
 }
 
-enum Status<T, C> {
+enum Status<T, C, E> {
     Connected,
-    Disconnected(ReconnectStatus<T, C>),
+    Disconnected(ReconnectStatus<T, C, E>),
     FailedAndExhausted, // the way one feels after programming in dynamically typed languages
 }
 
-fn exhausted_err<T>() -> Poll<io::Result<T>> {
-    let io_err = io::Error::new(
-        ErrorKind::NotConnected,
-        "Disconnected. Connection attempts have been exhausted.",
-    );
-    Poll::Ready(Err(io_err))
-}
-
-impl<T, C> Deref for StubbornIo<T, C> {
+impl<T, C, E> Deref for StubbornIo<T, C, E> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -114,25 +86,26 @@ impl<T, C> Deref for StubbornIo<T, C> {
     }
 }
 
-impl<T, C> DerefMut for StubbornIo<T, C> {
+impl<T, C, E> DerefMut for StubbornIo<T, C, E> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.underlying_io
     }
 }
 
-impl<T, C> StubbornIo<T, C>
+impl<T, C, E> StubbornIo<T, C, E>
 where
-    T: UnderlyingIo<C>,
+    T: UnderlyingIo<C, E>,
     C: Clone + Send + Unpin + 'static,
+    E: Error + Unpin,
 {
     /// Connects or creates a handle to the UnderlyingIo item,
     /// using the default reconnect options.
-    pub async fn connect(ctor_arg: C) -> io::Result<Self> {
+    pub async fn connect(ctor_arg: C) -> Result<Self, E> {
         let options = ReconnectOptions::new();
         Self::connect_with_options(ctor_arg, options).await
     }
 
-    pub async fn connect_with_options(ctor_arg: C, options: ReconnectOptions) -> io::Result<Self> {
+    pub async fn connect_with_options(ctor_arg: C, options: ReconnectOptions) -> Result<Self, E> {
         let tcp = match T::establish(ctor_arg.clone()).await {
             Ok(tcp) => {
                 info!("Initial connection succeeded.");
@@ -272,19 +245,7 @@ where
         }
     }
 
-    fn is_read_disconnect_detected(
-        &self,
-        poll_result: &Poll<io::Result<()>>,
-        bytes_read: usize,
-    ) -> bool {
-        match poll_result {
-            Poll::Ready(Ok(())) if self.is_final_read(bytes_read) => true,
-            Poll::Ready(Err(err)) => self.is_disconnect_error(err),
-            _ => false,
-        }
-    }
-
-    fn is_write_disconnect_detected<X>(&self, poll_result: &Poll<io::Result<X>>) -> bool {
+    fn is_write_disconnect_detected<X>(&self, poll_result: &Poll<Result<X, E>>) -> bool {
         match poll_result {
             Poll::Ready(Err(err)) => self.is_disconnect_error(err),
             _ => false,
@@ -292,10 +253,11 @@ where
     }
 }
 
-impl<T, C, I> Stream for StubbornIo<T, C>
+impl<T, C, I, E> Stream for StubbornIo<T, C, E>
 where
-    T: UnderlyingIo<C> + Stream<Item = I>,
+    T: UnderlyingIo<C, E> + Stream<Item = I>,
     C: Clone + Send + Unpin + 'static,
+    E: Error + Unpin,
 {
     type Item = I;
 
@@ -323,12 +285,13 @@ where
     }
 }
 
-impl<T, C, I> Sink<I> for StubbornIo<T, C>
+impl<T, C, I, E> Sink<I> for StubbornIo<T, C, E>
 where
-    T: UnderlyingIo<C> + Sink<I, Error = io::Error>,
+    T: UnderlyingIo<C, E> + Sink<I, Error = E>,
     C: Clone + Send + Unpin + 'static,
+    E: Error + Unpin,
 {
-    type Error = io::Error;
+    type Error = E;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.status {
@@ -346,7 +309,7 @@ where
                 self.poll_disconnect(cx);
                 Poll::Pending
             }
-            Status::FailedAndExhausted => exhausted_err(),
+            Status::FailedAndExhausted => Poll::Ready(Err(T::exhuast_err())),
         }
     }
 
@@ -370,7 +333,7 @@ where
                 self.poll_disconnect(cx);
                 Poll::Pending
             }
-            Status::FailedAndExhausted => exhausted_err(),
+            Status::FailedAndExhausted => Poll::Ready(Err(T::exhuast_err())),
         }
     }
 
@@ -386,134 +349,7 @@ where
                 poll
             }
             Status::Disconnected(_) => Poll::Pending,
-            Status::FailedAndExhausted => exhausted_err(),
+            Status::FailedAndExhausted => Poll::Ready(Err(T::exhuast_err())),
         }
-    }
-}
-
-impl<T, C> AsyncRead for StubbornIo<T, C>
-where
-    T: UnderlyingIo<C> + AsyncRead,
-    C: Clone + Send + Unpin + 'static,
-{
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        match &mut self.status {
-            Status::Connected => {
-                let pre_len = buf.filled().len();
-                let poll = AsyncRead::poll_read(Pin::new(&mut self.underlying_io), cx, buf);
-                let post_len = buf.filled().len();
-                let bytes_read = post_len - pre_len;
-                if self.is_read_disconnect_detected(&poll, bytes_read) {
-                    self.on_disconnect(cx);
-                    Poll::Pending
-                } else {
-                    poll
-                }
-            }
-            Status::Disconnected(_) => {
-                self.poll_disconnect(cx);
-                Poll::Pending
-            }
-            Status::FailedAndExhausted => exhausted_err(),
-        }
-    }
-}
-
-impl<T, C> AsyncWrite for StubbornIo<T, C>
-where
-    T: UnderlyingIo<C> + AsyncWrite,
-    C: Clone + Send + Unpin + 'static,
-{
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        match &mut self.status {
-            Status::Connected => {
-                let poll = AsyncWrite::poll_write(Pin::new(&mut self.underlying_io), cx, buf);
-
-                if self.is_write_disconnect_detected(&poll) {
-                    self.on_disconnect(cx);
-                    Poll::Pending
-                } else {
-                    poll
-                }
-            }
-            Status::Disconnected(_) => {
-                self.poll_disconnect(cx);
-                Poll::Pending
-            }
-            Status::FailedAndExhausted => exhausted_err(),
-        }
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match &mut self.status {
-            Status::Connected => {
-                let poll = AsyncWrite::poll_flush(Pin::new(&mut self.underlying_io), cx);
-
-                if self.is_write_disconnect_detected(&poll) {
-                    self.on_disconnect(cx);
-                    Poll::Pending
-                } else {
-                    poll
-                }
-            }
-            Status::Disconnected(_) => {
-                self.poll_disconnect(cx);
-                Poll::Pending
-            }
-            Status::FailedAndExhausted => exhausted_err(),
-        }
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        match &mut self.status {
-            Status::Connected => {
-                let poll = AsyncWrite::poll_shutdown(Pin::new(&mut self.underlying_io), cx);
-                if poll.is_ready() {
-                    // if completed, we are disconnected whether error or not
-                    self.on_disconnect(cx);
-                }
-
-                poll
-            }
-            Status::Disconnected(_) => Poll::Pending,
-            Status::FailedAndExhausted => exhausted_err(),
-        }
-    }
-
-    fn poll_write_vectored(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        bufs: &[IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
-        match &mut self.status {
-            Status::Connected => {
-                let poll =
-                    AsyncWrite::poll_write_vectored(Pin::new(&mut self.underlying_io), cx, bufs);
-
-                if self.is_write_disconnect_detected(&poll) {
-                    self.on_disconnect(cx);
-                    Poll::Pending
-                } else {
-                    poll
-                }
-            }
-            Status::Disconnected(_) => {
-                self.poll_disconnect(cx);
-                Poll::Pending
-            }
-            Status::FailedAndExhausted => exhausted_err(),
-        }
-    }
-
-    fn is_write_vectored(&self) -> bool {
-        self.underlying_io.is_write_vectored()
     }
 }
