@@ -1,5 +1,3 @@
-use crate::config::ReconnectOptions;
-use log::{error, info};
 use std::future::Future;
 use std::io::{self, ErrorKind, IoSlice};
 use std::marker::PhantomData;
@@ -7,8 +5,13 @@ use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
+
+use futures::{ready, Sink, Stream};
+use log::{error, info};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::time::sleep;
+
+use crate::config::ReconnectOptions;
 
 /// Trait that should be implemented for an [AsyncRead] and/or [AsyncWrite]
 /// item to enable it to work with the [StubbornIo] struct.
@@ -285,6 +288,105 @@ where
         match poll_result {
             Poll::Ready(Err(err)) => self.is_disconnect_error(err),
             _ => false,
+        }
+    }
+}
+
+impl<T, C, I> Stream for StubbornIo<T, C>
+where
+    T: UnderlyingIo<C> + Stream<Item = I>,
+    C: Clone + Send + Unpin + 'static,
+{
+    type Item = I;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.status {
+            Status::Connected => {
+                let poll = ready!(Pin::new(&mut self.underlying_io).poll_next(cx));
+                if poll.is_none() {
+                    self.on_disconnect(cx);
+                    Poll::Pending
+                } else {
+                    Poll::Ready(poll)
+                }
+            }
+            Status::Disconnected(_) => {
+                self.poll_disconnect(cx);
+                Poll::Pending
+            }
+            Status::FailedAndExhausted => Poll::Ready(None),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.underlying_io.size_hint()
+    }
+}
+
+impl<T, C, I> Sink<I> for StubbornIo<T, C>
+where
+    T: UnderlyingIo<C> + Sink<I, Error = io::Error>,
+    C: Clone + Send + Unpin + 'static,
+{
+    type Error = io::Error;
+
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.status {
+            Status::Connected => {
+                let poll = Pin::new(&mut self.underlying_io).poll_ready(cx);
+
+                if self.is_write_disconnect_detected(&poll) {
+                    self.on_disconnect(cx);
+                    Poll::Pending
+                } else {
+                    poll
+                }
+            }
+            Status::Disconnected(_) => {
+                self.poll_disconnect(cx);
+                Poll::Pending
+            }
+            Status::FailedAndExhausted => exhausted_err(),
+        }
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, item: I) -> Result<(), Self::Error> {
+        Pin::new(&mut self.underlying_io).start_send(item)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.status {
+            Status::Connected => {
+                let poll = Pin::new(&mut self.underlying_io).poll_flush(cx);
+
+                if self.is_write_disconnect_detected(&poll) {
+                    self.on_disconnect(cx);
+                    Poll::Pending
+                } else {
+                    poll
+                }
+            }
+            Status::Disconnected(_) => {
+                self.poll_disconnect(cx);
+                Poll::Pending
+            }
+            Status::FailedAndExhausted => exhausted_err(),
+        }
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self.status {
+            Status::Connected => {
+                let poll = Pin::new(&mut self.underlying_io).poll_close(cx);
+                if poll.is_ready() {
+                    // if completed, we are disconnected whether error or not
+                    self.on_disconnect(cx);
+                }
+
+                poll
+            }
+            Status::Disconnected(_) => Poll::Pending,
+            Status::FailedAndExhausted => exhausted_err(),
         }
     }
 }
