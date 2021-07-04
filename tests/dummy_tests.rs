@@ -8,7 +8,6 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use stubborn_io::tokio::{StubbornIo, UnderlyingIo};
 use stubborn_io::ReconnectOptions;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use futures::{Stream, Sink};
 
 #[derive(Default)]
@@ -92,19 +91,19 @@ impl Stream for DummyIo {
 impl Sink<Vec<u8>> for DummyIo {
     type Error = io::Error;
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         unreachable!()
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Vec<u8>) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, _item: Vec<u8>) -> Result<(), Self::Error> {
         unreachable!()
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         unreachable!()
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 }
@@ -194,7 +193,6 @@ mod already_connected {
     use super::*;
     use futures::stream::StreamExt;
 
-    use tokio_util::codec::{Framed, LinesCodec};
     use std::str::from_utf8;
 
     #[tokio::test]
