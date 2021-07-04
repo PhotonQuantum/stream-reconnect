@@ -9,13 +9,16 @@ keywords = ["reconnect", "retry", "stubborn", "io", "StubbornTcpStream"]
 repository = "https://github.com/craftytrickster/stubborn-io"
 documentation = "https://docs.rs/stubborn-io"
 readme = "README.md"
- 
+
+[features]
+default = ["tokio"]
+
 [dependencies]
-tokio = { version = "1", features = ["time", "net"] }
+tokio = { version = "1", features = ["time"], optional = true }
+async-std = { version = "1", optional = true }
 log = "0.4"
 futures = "0.3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "fs", "io-util"] }
-tokio-util = { version = "0.6", features = ["codec"] }
 futures = "0.3"

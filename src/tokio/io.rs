@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use futures::{ready, Sink, Stream};
 use log::{error, info};
-use tokio::time::sleep;
 
 use crate::config::ReconnectOptions;
 use std::error::Error;
@@ -131,7 +130,10 @@ where
                         reconnect_num, duration
                     );
 
-                    sleep(duration).await;
+                    #[cfg(feature="tokio")]
+                    tokio::time::sleep(duration).await;
+                    #[cfg(feature="async-std")]
+                    async_std::task::sleep(duration).await;
 
                     info!("Attempting reconnect #{} now.", reconnect_num);
 
@@ -197,7 +199,10 @@ where
                 }
             };
 
-            let future_instant = sleep(next_duration);
+            #[cfg(feature="tokio")]
+            let future_instant = tokio::time::sleep(next_duration);
+            #[cfg(feature="async-std")]
+            let future_instant = async_std::task::sleep(next_duration);
 
             reconnect_status.attempts_tracker.attempt_num += 1;
             let cur_num = reconnect_status.attempts_tracker.attempt_num;
