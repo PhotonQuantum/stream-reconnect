@@ -24,12 +24,12 @@
 //! use std::future::Future;
 //! use std::path::PathBuf;
 //! use std::pin::Pin;
-//! use stubborn_io::tokio::{StubbornIo, UnderlyingIo};
+//! use stream_reconnect::{ReconnectStream, UnderlyingStream};
 //! use tokio::fs::File;
 //!
 //! struct MyFile(File); // Struct must implement AsyncRead + AsyncWrite
 //!
-//! impl UnderlyingIo<PathBuf> for MyFile {
+//! impl UnderlyingStream<PathBuf> for MyFile {
 //!     // Establishes an io connection.
 //!     // Additionally, this will be used when reconnect tries are attempted.
 //!     fn establish(path: PathBuf) -> Pin<Box<dyn Future<Output = io::Result<Self>> + Send>> {
@@ -45,7 +45,7 @@
 //! # async fn test() -> io::Result<()> {
 //! // Because StubbornIo implements deref, you are able to invoke
 //! // the original methods on the File struct.
-//! type HomemadeStubbornFile = StubbornIo<MyFile, PathBuf>;
+//! type HomemadeStubbornFile = ReconnectStream<MyFile, PathBuf>;
 //! let path = PathBuf::from("./foo/bar.txt");
 //!
 //! let stubborn_file = HomemadeStubbornFile::connect(path).await?;
@@ -54,11 +54,9 @@
 //!  # }
 //! ```
 
-pub mod config;
-
-// in the future, there may be a mod for synchronous regular io too, which is why
-// tokio is specifically chosen to place the async stuff
-pub mod tokio;
-
 #[doc(inline)]
-pub use self::config::ReconnectOptions;
+pub use crate::config::ReconnectOptions;
+pub use crate::stream::{ReconnectStream, UnderlyingStream};
+
+pub mod config;
+mod stream;

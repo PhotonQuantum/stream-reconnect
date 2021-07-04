@@ -46,7 +46,7 @@ impl ReconnectOptions {
     ///
     /// ```
     /// use std::time::Duration;
-    /// use stubborn_io::ReconnectOptions;
+    /// use stream_reconnect::ReconnectOptions;
     ///
     /// // With the below vector, the stubborn-io item will try to reconnect three times,
     /// // waiting 2 seconds between each attempt. Once all three tries are exhausted,

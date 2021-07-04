@@ -7,11 +7,11 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use stubborn_io::tokio::{StubbornIo, UnderlyingIo};
-use stubborn_io::ReconnectOptions;
+use stream_reconnect::{ReconnectStream, UnderlyingStream};
+use stream_reconnect::ReconnectOptions;
 
 #[derive(Default)]
-pub struct DummyIo {
+pub struct DummyStream {
     poll_read_results: PollReadResults,
 }
 
@@ -25,13 +25,13 @@ type ConnectOutcomes = Arc<Mutex<Vec<bool>>>;
 
 type PollReadResults = Arc<Mutex<Vec<(Poll<io::Result<()>>, Vec<u8>)>>>;
 
-impl UnderlyingIo<DummyCtor, io::Error> for DummyIo {
+impl UnderlyingStream<DummyCtor, io::Error> for DummyStream {
     fn establish(ctor: DummyCtor) -> Pin<Box<dyn Future<Output = io::Result<Self>> + Send>> {
         let mut connect_attempt_outcome_results = ctor.connect_outcomes.lock().unwrap();
 
         let should_succeed = connect_attempt_outcome_results.remove(0);
         if should_succeed {
-            let dummy_io = DummyIo {
+            let dummy_io = DummyStream {
                 poll_read_results: ctor.poll_read_results.clone(),
             };
 
@@ -67,9 +67,9 @@ impl UnderlyingIo<DummyCtor, io::Error> for DummyIo {
     }
 }
 
-type StubbornDummy = StubbornIo<DummyIo, DummyCtor, io::Error>;
+type ReconnectDummy = ReconnectStream<DummyStream, DummyCtor, io::Error>;
 
-impl Stream for DummyIo {
+impl Stream for DummyStream {
     type Item = Vec<u8>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -91,7 +91,7 @@ impl Stream for DummyIo {
     }
 }
 
-impl Sink<Vec<u8>> for DummyIo {
+impl Sink<Vec<u8>> for DummyStream {
     type Error = io::Error;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -124,7 +124,7 @@ pub mod instantiating {
             ..DummyCtor::default()
         };
 
-        let dummy = StubbornDummy::connect(ctor).await;
+        let dummy = ReconnectDummy::connect(ctor).await;
 
         assert!(dummy.is_ok());
     }
@@ -137,7 +137,7 @@ pub mod instantiating {
             ..DummyCtor::default()
         };
 
-        let dummy = StubbornDummy::connect(ctor).await;
+        let dummy = ReconnectDummy::connect(ctor).await;
 
         assert!(dummy.is_err());
     }
@@ -160,7 +160,7 @@ pub mod instantiating {
                 disconnect_clone.fetch_add(1, Ordering::Relaxed);
             });
 
-        let dummy = StubbornDummy::connect_with_options(ctor, options).await;
+        let dummy = ReconnectDummy::connect_with_options(ctor, options).await;
 
         assert_eq!(disconnect_counter.load(Ordering::Relaxed), 2);
         assert!(dummy.is_err());
@@ -184,7 +184,7 @@ pub mod instantiating {
                 disconnect_clone.fetch_add(1, Ordering::Relaxed);
             });
 
-        let dummy = StubbornDummy::connect_with_options(ctor, options).await;
+        let dummy = ReconnectDummy::connect_with_options(ctor, options).await;
 
         assert_eq!(disconnect_counter.load(Ordering::Relaxed), 1);
         assert!(dummy.is_ok());
@@ -219,7 +219,7 @@ mod already_connected {
             poll_read_results,
         };
 
-        let mut dummy = StubbornDummy::connect(ctor).await.unwrap();
+        let mut dummy = ReconnectDummy::connect(ctor).await.unwrap();
 
         let mut buf = vec![];
         buf.extend(dummy.next().await.unwrap());
@@ -265,7 +265,7 @@ mod already_connected {
                 ]
             });
 
-        let mut dummy = StubbornDummy::connect_with_options(ctor, options)
+        let mut dummy = ReconnectDummy::connect_with_options(ctor, options)
             .await
             .unwrap();
 
@@ -307,7 +307,7 @@ mod already_connected {
             ]
         });
 
-        let mut dummy = StubbornDummy::connect_with_options(ctor, options)
+        let mut dummy = ReconnectDummy::connect_with_options(ctor, options)
             .await
             .unwrap();
 

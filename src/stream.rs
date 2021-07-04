@@ -13,7 +13,7 @@ use std::error::Error;
 
 /// Trait that should be implemented for an [AsyncRead] and/or [AsyncWrite]
 /// item to enable it to work with the [StubbornIo] struct.
-pub trait UnderlyingIo<C, E>: Sized + Unpin
+pub trait UnderlyingStream<C, E>: Sized + Unpin
 where
     C: Clone + Send + Unpin,
     E: Error,
@@ -44,7 +44,7 @@ struct ReconnectStatus<T, C, E> {
 
 impl<T, C, E> ReconnectStatus<T, C, E>
 where
-    T: UnderlyingIo<C, E>,
+    T: UnderlyingStream<C, E>,
     C: Clone + Send + Unpin + 'static,
     E: Error + Unpin,
 {
@@ -64,7 +64,7 @@ where
 /// The StubbornIo is a wrapper over a tokio AsyncRead/AsyncWrite item that will automatically
 /// invoke the [UnderlyingIo::establish] upon initialization and when a reconnect is needed.
 /// Because it implements deref, you are able to invoke all of the original methods on the wrapped IO.
-pub struct StubbornIo<T, C, E> {
+pub struct ReconnectStream<T, C, E> {
     status: Status<T, C, E>,
     underlying_io: T,
     options: ReconnectOptions,
@@ -77,7 +77,7 @@ enum Status<T, C, E> {
     FailedAndExhausted, // the way one feels after programming in dynamically typed languages
 }
 
-impl<T, C, E> Deref for StubbornIo<T, C, E> {
+impl<T, C, E> Deref for ReconnectStream<T, C, E> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -85,15 +85,15 @@ impl<T, C, E> Deref for StubbornIo<T, C, E> {
     }
 }
 
-impl<T, C, E> DerefMut for StubbornIo<T, C, E> {
+impl<T, C, E> DerefMut for ReconnectStream<T, C, E> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.underlying_io
     }
 }
 
-impl<T, C, E> StubbornIo<T, C, E>
+impl<T, C, E> ReconnectStream<T, C, E>
 where
-    T: UnderlyingIo<C, E>,
+    T: UnderlyingStream<C, E>,
     C: Clone + Send + Unpin + 'static,
     E: Error + Unpin,
 {
@@ -161,7 +161,7 @@ where
             }
         };
 
-        Ok(StubbornIo {
+        Ok(ReconnectStream {
             status: Status::Connected,
             ctor_arg,
             underlying_io: tcp,
@@ -258,9 +258,9 @@ where
     }
 }
 
-impl<T, C, I, E> Stream for StubbornIo<T, C, E>
+impl<T, C, I, E> Stream for ReconnectStream<T, C, E>
 where
-    T: UnderlyingIo<C, E> + Stream<Item = I>,
+    T: UnderlyingStream<C, E> + Stream<Item = I>,
     C: Clone + Send + Unpin + 'static,
     E: Error + Unpin,
 {
@@ -290,9 +290,9 @@ where
     }
 }
 
-impl<T, C, I, E> Sink<I> for StubbornIo<T, C, E>
+impl<T, C, I, E> Sink<I> for ReconnectStream<T, C, E>
 where
-    T: UnderlyingIo<C, E> + Sink<I, Error = E>,
+    T: UnderlyingStream<C, E> + Sink<I, Error = E>,
     C: Clone + Send + Unpin + 'static,
     E: Error + Unpin,
 {
