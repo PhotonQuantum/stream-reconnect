@@ -29,7 +29,7 @@
 //!
 //! struct MyFile(File); // Struct must implement AsyncRead + AsyncWrite
 //!
-//! impl UnderlyingIo<PathBuf> for MyFile {
+//! impl UnderlyingIo<PathBuf, io::Error> for MyFile {
 //!     // Establishes an io connection.
 //!     // Additionally, this will be used when reconnect tries are attempted.
 //!     fn establish(path: PathBuf) -> Pin<Box<dyn Future<Output = io::Result<Self>> + Send>> {
@@ -40,12 +40,18 @@
 //!             Ok(MyFile(tokio_file))
 //!         })
 //!     }
+//!     fn is_disconnect_error(&self, _err: &io::Error) -> bool {
+//!         true
+//!     }
+//!     fn exhaust_err() -> io::Error {
+//!         io::Error::new(io::ErrorKind::Other, "Exhaust")
+//!     }
 //! }
 //!
 //! # async fn test() -> io::Result<()> {
 //! // Because StubbornIo implements deref, you are able to invoke
 //! // the original methods on the File struct.
-//! type HomemadeStubbornFile = StubbornIo<MyFile, PathBuf>;
+//! type HomemadeStubbornFile = StubbornIo<MyFile, PathBuf, io::Error>;
 //! let path = PathBuf::from("./foo/bar.txt");
 //!
 //! let stubborn_file = HomemadeStubbornFile::connect(path).await?;
