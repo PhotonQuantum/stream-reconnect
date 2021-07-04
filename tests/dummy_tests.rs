@@ -1,5 +1,6 @@
+use futures::{Sink, Stream};
 use std::future::Future;
-use std::io::{self, ErrorKind, Error};
+use std::io::{self, Error, ErrorKind};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
@@ -8,7 +9,6 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use stubborn_io::tokio::{StubbornIo, UnderlyingIo};
 use stubborn_io::ReconnectOptions;
-use futures::{Stream, Sink};
 
 #[derive(Default)]
 pub struct DummyIo {
@@ -60,7 +60,10 @@ impl UnderlyingIo<DummyCtor, io::Error> for DummyIo {
     }
 
     fn exhuast_err() -> Error {
-        io::Error::new(ErrorKind::NotConnected, "Disconnected. Connection attempts have been exhausted.")
+        io::Error::new(
+            ErrorKind::NotConnected,
+            "Disconnected. Connection attempts have been exhausted.",
+        )
     }
 }
 
@@ -286,10 +289,7 @@ mod already_connected {
             ),
             (Poll::Ready(Ok(())), b"e\n".to_vec()),
             (
-                Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "eof",
-                ))),
+                Poll::Ready(Err(io::Error::new(io::ErrorKind::Other, "eof"))),
                 vec![],
             ),
         ]));

@@ -130,9 +130,9 @@ where
                         reconnect_num, duration
                     );
 
-                    #[cfg(feature="tokio")]
+                    #[cfg(feature = "tokio")]
                     tokio::time::sleep(duration).await;
-                    #[cfg(feature="async-std")]
+                    #[cfg(feature = "async-std")]
                     async_std::task::sleep(duration).await;
 
                     info!("Attempting reconnect #{} now.", reconnect_num);
@@ -199,9 +199,9 @@ where
                 }
             };
 
-            #[cfg(feature="tokio")]
+            #[cfg(feature = "tokio")]
             let future_instant = tokio::time::sleep(next_duration);
-            #[cfg(feature="async-std")]
+            #[cfg(feature = "async-std")]
             let future_instant = async_std::task::sleep(next_duration);
 
             reconnect_status.attempts_tracker.attempt_num += 1;
