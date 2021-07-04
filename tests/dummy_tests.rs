@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Error};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use std::time::Duration;
 use stubborn_io::tokio::{StubbornIo, UnderlyingIo};
 use stubborn_io::ReconnectOptions;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use futures::{Stream, Sink};
 
 #[derive(Default)]
 pub struct DummyIo {
@@ -25,7 +26,7 @@ type ConnectOutcomes = Arc<Mutex<Vec<bool>>>;
 
 type PollReadResults = Arc<Mutex<Vec<(Poll<io::Result<()>>, Vec<u8>)>>>;
 
-impl UnderlyingIo<DummyCtor> for DummyIo {
+impl UnderlyingIo<DummyCtor, io::Error> for DummyIo {
     fn establish(ctor: DummyCtor) -> Pin<Box<dyn Future<Output = io::Result<Self>> + Send>> {
         let mut connect_attempt_outcome_results = ctor.connect_outcomes.lock().unwrap();
 
@@ -40,34 +41,36 @@ impl UnderlyingIo<DummyCtor> for DummyIo {
             Box::pin(async { Err(io::Error::new(ErrorKind::NotConnected, "So unfortunate")) })
         }
     }
+
+    fn is_disconnect_error(&self, err: &Error) -> bool {
+        use std::io::ErrorKind::*;
+
+        matches!(
+            err.kind(),
+            NotFound
+                | PermissionDenied
+                | ConnectionRefused
+                | ConnectionReset
+                | ConnectionAborted
+                | NotConnected
+                | AddrInUse
+                | AddrNotAvailable
+                | BrokenPipe
+                | AlreadyExists
+        )
+    }
+
+    fn exhuast_err() -> Error {
+        io::Error::new(ErrorKind::NotConnected, "Disconnected. Connection attempts have been exhausted.")
+    }
 }
 
-type StubbornDummy = StubbornIo<DummyIo, DummyCtor>;
+type StubbornDummy = StubbornIo<DummyIo, DummyCtor, io::Error>;
 
-impl AsyncWrite for DummyIo {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        _buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        unreachable!();
-    }
+impl Stream for DummyIo {
+    type Item = Vec<u8>;
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        unreachable!();
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
-    }
-}
-
-impl AsyncRead for DummyIo {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let cloned = self.poll_read_results.clone();
         let mut poll_read_results = cloned.lock().unwrap();
 
@@ -78,12 +81,31 @@ impl AsyncRead for DummyIo {
                 cx.waker().wake_by_ref();
                 Poll::Pending
             } else {
-                Poll::Ready(Err(e))
+                Poll::Ready(None)
             }
         } else {
-            let _ = buf.put_slice(&bytes);
-            result
+            Poll::Ready(Some(bytes))
         }
+    }
+}
+
+impl Sink<Vec<u8>> for DummyIo {
+    type Error = io::Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        unreachable!()
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: Vec<u8>) -> Result<(), Self::Error> {
+        unreachable!()
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        unreachable!()
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -173,6 +195,7 @@ mod already_connected {
     use futures::stream::StreamExt;
 
     use tokio_util::codec::{Framed, LinesCodec};
+    use std::str::from_utf8;
 
     #[tokio::test]
     async fn should_ignore_non_fatal_errors_and_continue_as_connected() {
@@ -195,13 +218,15 @@ mod already_connected {
             poll_read_results,
         };
 
-        let dummy = StubbornDummy::connect(ctor).await.unwrap();
+        let mut dummy = StubbornDummy::connect(ctor).await.unwrap();
 
-        let mut framed = Framed::new(dummy, LinesCodec::new());
+        let mut buf = vec![];
+        buf.extend(dummy.next().await.unwrap());
+        buf.extend(dummy.next().await.unwrap());
 
-        let msg = framed.next().await.unwrap().unwrap();
+        let msg = from_utf8(&buf).unwrap();
 
-        assert_eq!(msg, String::from("yothere"));
+        assert_eq!(msg, "yothere\n");
     }
 
     #[tokio::test]
@@ -239,15 +264,13 @@ mod already_connected {
                 ]
             });
 
-        let dummy = StubbornDummy::connect_with_options(ctor, options)
+        let mut dummy = StubbornDummy::connect_with_options(ctor, options)
             .await
             .unwrap();
 
-        let mut framed = Framed::new(dummy, LinesCodec::new());
+        let msg = dummy.next().await.unwrap();
 
-        let msg = framed.next().await;
-
-        assert_eq!(msg.unwrap().unwrap(), String::from("e"));
+        assert_eq!(msg, b"e\n".to_vec());
         assert_eq!(disconnect_counter.load(Ordering::Relaxed), 1);
     }
 
@@ -264,6 +287,13 @@ mod already_connected {
                 vec![],
             ),
             (Poll::Ready(Ok(())), b"e\n".to_vec()),
+            (
+                Poll::Ready(Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "eof",
+                ))),
+                vec![],
+            ),
         ]));
 
         let ctor = DummyCtor {
@@ -279,14 +309,14 @@ mod already_connected {
             ]
         });
 
-        let dummy = StubbornDummy::connect_with_options(ctor, options)
+        let mut dummy = StubbornDummy::connect_with_options(ctor, options)
             .await
             .unwrap();
 
-        let mut framed = Framed::new(dummy, LinesCodec::new());
-
-        let msg = framed.next().await;
-
-        assert!(msg.unwrap().is_err());
+        let mut buf = vec![];
+        while let Some(msg) = dummy.next().await {
+            buf.extend(msg);
+        }
+        assert!(buf.is_empty());
     }
 }
