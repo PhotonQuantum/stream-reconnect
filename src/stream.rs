@@ -27,7 +27,7 @@ where
     /// which errors are considered "disconnects", but this can be overridden based on the user's needs.
     fn is_disconnect_error(&self, err: &E) -> bool;
 
-    fn exhuast_err() -> E;
+    fn exhaust_err() -> E;
 }
 
 struct AttemptsTracker {
@@ -314,7 +314,7 @@ where
                 self.poll_disconnect(cx);
                 Poll::Pending
             }
-            Status::FailedAndExhausted => Poll::Ready(Err(T::exhuast_err())),
+            Status::FailedAndExhausted => Poll::Ready(Err(T::exhaust_err())),
         }
     }
 
@@ -338,7 +338,7 @@ where
                 self.poll_disconnect(cx);
                 Poll::Pending
             }
-            Status::FailedAndExhausted => Poll::Ready(Err(T::exhuast_err())),
+            Status::FailedAndExhausted => Poll::Ready(Err(T::exhaust_err())),
         }
     }
 
@@ -354,7 +354,7 @@ where
                 poll
             }
             Status::Disconnected(_) => Poll::Pending,
-            Status::FailedAndExhausted => Poll::Ready(Err(T::exhuast_err())),
+            Status::FailedAndExhausted => Poll::Ready(Err(T::exhaust_err())),
         }
     }
 }

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use stream_reconnect::{ReconnectStream, UnderlyingStream};
 use stream_reconnect::ReconnectOptions;
+use stream_reconnect::{ReconnectStream, UnderlyingStream};
 
 #[derive(Default)]
 pub struct DummyStream {
@@ -59,7 +59,7 @@ impl UnderlyingStream<DummyCtor, io::Error> for DummyStream {
         )
     }
 
-    fn exhuast_err() -> Error {
+    fn exhaust_err() -> Error {
         io::Error::new(
             ErrorKind::NotConnected,
             "Disconnected. Connection attempts have been exhausted.",
