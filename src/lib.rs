@@ -20,15 +20,15 @@
 //!
 //! ## Example on how a Stubborn IO item might be created
 //! ```
-//! #[tokio::test]
-//! async fn test() -> std::io::Result<()> {
-//!     use crate::UnderlyingStream;
-//!     use std::future::Future;
-//!     use std::io;
-//!     use std::pin::Pin;
-//!     use tokio::net::TcpStream;
-//!     use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
-//!
+//! # #[tokio::test]
+//! # async fn test() -> std::io::Result<()> {
+//! #    use crate::UnderlyingStream;
+//! #    use std::future::Future;
+//! #    use std::io;
+//! #    use std::pin::Pin;
+//! #    use tokio::net::TcpStream;
+//! #    use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+//! #
 //!     struct MyWs(WebSocketStream<MaybeTlsStream<TcpStream>>);
 //!
 //!     impl UnderlyingStream<String, io::Error> for MyWs {
@@ -48,8 +48,8 @@
 //!             true
 //!         }
 //!     }
-//!     Ok(())
-//! }
+//! #     Ok(())
+//! # }
 //! ```
 
 #[doc(inline)]
