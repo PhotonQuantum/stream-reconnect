@@ -20,38 +20,36 @@
 //!
 //! ## Example on how a Stubborn IO item might be created
 //! ```
-//! use std::io;
-//! use std::future::Future;
-//! use std::path::PathBuf;
-//! use std::pin::Pin;
-//! use stream_reconnect::{ReconnectStream, UnderlyingStream};
-//! use tokio::fs::File;
+//! #[tokio::test]
+//! async fn test() -> std::io::Result<()> {
+//!     use crate::UnderlyingStream;
+//!     use std::future::Future;
+//!     use std::io;
+//!     use std::pin::Pin;
+//!     use tokio::net::TcpStream;
+//!     use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 //!
-//! struct MyFile(File); // Struct must implement AsyncRead + AsyncWrite
+//!     struct MyWs(WebSocketStream<MaybeTlsStream<TcpStream>>);
 //!
-//! impl UnderlyingStream<PathBuf> for MyFile {
-//!     // Establishes an io connection.
-//!     // Additionally, this will be used when reconnect tries are attempted.
-//!     fn establish(path: PathBuf) -> Pin<Box<dyn Future<Output = io::Result<Self>> + Send>> {
-//!         Box::pin(async move {
-//!             // In this case, we are trying to "connect" a file that
-//!             // should exist on the system
-//!             let tokio_file = File::open(path).await?;
-//!             Ok(MyFile(tokio_file))
-//!         })
+//!     impl UnderlyingStream<String, io::Error> for MyWs {
+//!         // Establishes an io connection.
+//!         // Additionally, this will be used when reconnect tries are attempted.
+//!         fn establish(addr: String) -> Pin<Box<dyn Future<Output = io::Result<Self>> + Send>> {
+//!             Box::pin(async move {
+//!                 // In this case, we are trying to connect to the WebSocket endpoint
+//!                 let ws_connection = connect_async(addr).await.unwrap().0;
+//!                 Ok(MyWs(ws_connection))
+//!             })
+//!         }
+//!         fn exhaust_err() -> io::Error {
+//!             io::Error::new(io::ErrorKind::Other, "Exhausted")
+//!         }
+//!         fn is_disconnect_error(&self, _err: &io::Error) -> bool {
+//!             true
+//!         }
 //!     }
+//!     Ok(())
 //! }
-//!
-//! # async fn test() -> io::Result<()> {
-//! // Because StubbornIo implements deref, you are able to invoke
-//! // the original methods on the File struct.
-//! type HomemadeStubbornFile = ReconnectStream<MyFile, PathBuf>;
-//! let path = PathBuf::from("./foo/bar.txt");
-//!
-//! let stubborn_file = HomemadeStubbornFile::connect(path).await?;
-//! // ... application logic here!
-//!  # Ok(())
-//!  # }
 //! ```
 
 #[doc(inline)]

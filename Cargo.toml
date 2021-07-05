@@ -21,3 +21,4 @@ futures = "0.3"
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "fs", "io-util"] }
 futures = "0.3"
+tokio-tungstenite = "*"
