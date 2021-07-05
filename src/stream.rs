@@ -13,7 +13,7 @@ use std::error::Error;
 
 /// Trait that should be implemented for an [AsyncRead] and/or [AsyncWrite]
 /// item to enable it to work with the [StubbornIo] struct.
-pub trait UnderlyingStream<C, E>: Sized + Unpin
+pub trait UnderlyingStream<C, I, E>: Sized + Unpin
 where
     C: Clone + Send + Unpin,
     E: Error,
@@ -25,7 +25,11 @@ where
     /// When IO items experience an [io::Error](io::Error) during operation, it does not necessarily mean
     /// it is a disconnect/termination (ex: WouldBlock). This trait provides sensible defaults to classify
     /// which errors are considered "disconnects", but this can be overridden based on the user's needs.
-    fn is_disconnect_error(&self, err: &E) -> bool;
+    fn is_write_disconnect_error(&self, err: &E) -> bool;
+
+    fn is_read_disconnect_error(&self, _item: &I) -> bool {
+        false
+    }
 
     fn exhaust_err() -> E;
 }
@@ -35,16 +39,17 @@ struct AttemptsTracker {
     retries_remaining: Box<dyn Iterator<Item = Duration> + Send>,
 }
 
-struct ReconnectStatus<T, C, E> {
+struct ReconnectStatus<T, C, I, E> {
     attempts_tracker: AttemptsTracker,
     reconnect_attempt: Pin<Box<dyn Future<Output = Result<T, E>> + Send>>,
     _phantom_data: PhantomData<C>,
-    _phantom_data_2: PhantomData<E>,
+    _phantom_data_2: PhantomData<I>,
+    _phantom_data_3: PhantomData<E>,
 }
 
-impl<T, C, E> ReconnectStatus<T, C, E>
+impl<T, C, I, E> ReconnectStatus<T, C, I, E>
 where
-    T: UnderlyingStream<C, E>,
+    T: UnderlyingStream<C, I, E>,
     C: Clone + Send + Unpin + 'static,
     E: Error + Unpin,
 {
@@ -57,6 +62,7 @@ where
             reconnect_attempt: Box::pin(async { unreachable!("Not going to happen") }),
             _phantom_data: PhantomData,
             _phantom_data_2: PhantomData,
+            _phantom_data_3: PhantomData
         }
     }
 }
@@ -64,20 +70,21 @@ where
 /// The StubbornIo is a wrapper over a tokio AsyncRead/AsyncWrite item that will automatically
 /// invoke the [UnderlyingIo::establish] upon initialization and when a reconnect is needed.
 /// Because it implements deref, you are able to invoke all of the original methods on the wrapped IO.
-pub struct ReconnectStream<T, C, E> {
-    status: Status<T, C, E>,
+pub struct ReconnectStream<T, C, I, E> {
+    status: Status<T, C, I, E>,
     underlying_io: T,
     options: ReconnectOptions,
     ctor_arg: C,
+    _marker: PhantomData<I>
 }
 
-enum Status<T, C, E> {
+enum Status<T, C, I, E> {
     Connected,
-    Disconnected(ReconnectStatus<T, C, E>),
+    Disconnected(ReconnectStatus<T, C, I, E>),
     FailedAndExhausted, // the way one feels after programming in dynamically typed languages
 }
 
-impl<T, C, E> Deref for ReconnectStream<T, C, E> {
+impl<T, C, I, E> Deref for ReconnectStream<T, C, I, E> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -85,16 +92,17 @@ impl<T, C, E> Deref for ReconnectStream<T, C, E> {
     }
 }
 
-impl<T, C, E> DerefMut for ReconnectStream<T, C, E> {
+impl<T, C, I, E> DerefMut for ReconnectStream<T, C, I, E> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.underlying_io
     }
 }
 
-impl<T, C, E> ReconnectStream<T, C, E>
+impl<T, C, I, E> ReconnectStream<T, C, I, E>
 where
-    T: UnderlyingStream<C, E>,
+    T: UnderlyingStream<C, I, E>,
     C: Clone + Send + Unpin + 'static,
+    I: Unpin,
     E: Error + Unpin,
 {
     /// Connects or creates a handle to the UnderlyingIo item,
@@ -166,6 +174,7 @@ where
             ctor_arg,
             underlying_io: tcp,
             options,
+            _marker: PhantomData
         })
     }
 
@@ -252,16 +261,17 @@ where
 
     fn is_write_disconnect_detected<X>(&self, poll_result: &Poll<Result<X, E>>) -> bool {
         match poll_result {
-            Poll::Ready(Err(err)) => self.is_disconnect_error(err),
+            Poll::Ready(Err(err)) => self.is_write_disconnect_error(err),
             _ => false,
         }
     }
 }
 
-impl<T, C, I, E> Stream for ReconnectStream<T, C, E>
+impl<T, C, I, E> Stream for ReconnectStream<T, C, I, E>
 where
-    T: UnderlyingStream<C, E> + Stream<Item = I>,
+    T: UnderlyingStream<C, I, E> + Stream<Item = I>,
     C: Clone + Send + Unpin + 'static,
+    I: Unpin,
     E: Error + Unpin,
 {
     type Item = I;
@@ -290,10 +300,11 @@ where
     }
 }
 
-impl<T, C, I, E> Sink<I> for ReconnectStream<T, C, E>
+impl<T, C, I, E> Sink<I> for ReconnectStream<T, C, I, E>
 where
-    T: UnderlyingStream<C, E> + Sink<I, Error = E>,
+    T: UnderlyingStream<C, I, E> + Sink<I, Error = E>,
     C: Clone + Send + Unpin + 'static,
+    I: Unpin,
     E: Error + Unpin,
 {
     type Error = E;

@@ -25,7 +25,7 @@ type ConnectOutcomes = Arc<Mutex<Vec<bool>>>;
 
 type PollReadResults = Arc<Mutex<Vec<(Poll<io::Result<()>>, Vec<u8>)>>>;
 
-impl UnderlyingStream<DummyCtor, io::Error> for DummyStream {
+impl UnderlyingStream<DummyCtor, Vec<u8>, io::Error> for DummyStream {
     fn establish(ctor: DummyCtor) -> Pin<Box<dyn Future<Output = io::Result<Self>> + Send>> {
         let mut connect_attempt_outcome_results = ctor.connect_outcomes.lock().unwrap();
 
@@ -41,7 +41,7 @@ impl UnderlyingStream<DummyCtor, io::Error> for DummyStream {
         }
     }
 
-    fn is_disconnect_error(&self, err: &Error) -> bool {
+    fn is_write_disconnect_error(&self, err: &Error) -> bool {
         use std::io::ErrorKind::*;
 
         matches!(
@@ -67,7 +67,7 @@ impl UnderlyingStream<DummyCtor, io::Error> for DummyStream {
     }
 }
 
-type ReconnectDummy = ReconnectStream<DummyStream, DummyCtor, io::Error>;
+type ReconnectDummy = ReconnectStream<DummyStream, DummyCtor, Vec<u8>, io::Error>;
 
 impl Stream for DummyStream {
     type Item = Vec<u8>;
