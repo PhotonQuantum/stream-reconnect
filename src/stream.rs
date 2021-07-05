@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
@@ -9,7 +10,6 @@ use futures::{ready, Sink, Stream};
 use log::{error, info};
 
 use crate::config::ReconnectOptions;
-use std::error::Error;
 
 /// Trait that should be implemented for an [AsyncRead] and/or [AsyncWrite]
 /// item to enable it to work with the [StubbornIo] struct.
@@ -62,7 +62,7 @@ where
             reconnect_attempt: Box::pin(async { unreachable!("Not going to happen") }),
             _phantom_data: PhantomData,
             _phantom_data_2: PhantomData,
-            _phantom_data_3: PhantomData
+            _phantom_data_3: PhantomData,
         }
     }
 }
@@ -75,7 +75,7 @@ pub struct ReconnectStream<T, C, I, E> {
     underlying_io: T,
     options: ReconnectOptions,
     ctor_arg: C,
-    _marker: PhantomData<I>
+    _marker: PhantomData<I>,
 }
 
 enum Status<T, C, I, E> {
@@ -174,7 +174,7 @@ where
             ctor_arg,
             underlying_io: tcp,
             options,
-            _marker: PhantomData
+            _marker: PhantomData,
         })
     }
 
