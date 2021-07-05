@@ -300,11 +300,11 @@ where
     }
 }
 
-impl<T, C, I, E> Sink<I> for ReconnectStream<T, C, I, E>
+impl<T, C, I, I2, E> Sink<I> for ReconnectStream<T, C, I2, E>
 where
-    T: UnderlyingStream<C, I, E> + Sink<I, Error = E>,
+    T: UnderlyingStream<C, I2, E> + Sink<I, Error = E>,
     C: Clone + Send + Unpin + 'static,
-    I: Unpin,
+    I2: Unpin,
     E: Error + Unpin,
 {
     type Error = E;
