@@ -280,11 +280,16 @@ where
         match self.status {
             Status::Connected => {
                 let poll = ready!(Pin::new(&mut self.underlying_io).poll_next(cx));
-                if poll.is_none() {
+                if let Some(poll) = poll {
+                    if self.is_read_disconnect_error(&poll) {
+                        self.on_disconnect(cx);
+                        Poll::Pending
+                    } else {
+                        Poll::Ready(Some(poll))
+                    }
+                } else {
                     self.on_disconnect(cx);
                     Poll::Pending
-                } else {
-                    Poll::Ready(poll)
                 }
             }
             Status::Disconnected(_) => {
