@@ -1,28 +1,30 @@
 //! Provides options to configure the behavior of stubborn-io items,
 //! specifically related to reconnect behavior.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 pub type DurationIterator = Box<dyn Iterator<Item = Duration> + Send + Sync>;
 
 /// User specified options that control the behavior of the stubborn-io upon disconnect.
+#[derive(Clone)]
 pub struct ReconnectOptions {
     /// Represents a function that generates an Iterator
     /// to schedule the wait between reconnection attempts.
-    pub retries_to_attempt_fn: Box<dyn Fn() -> DurationIterator + Send + Sync>,
+    pub retries_to_attempt_fn: Arc<dyn Fn() -> DurationIterator + Send + Sync>,
 
     /// If this is set to true, if the initial connect method of the stubborn-io item fails,
     /// then no further reconnects will be attempted
     pub exit_if_first_connect_fails: bool,
 
     /// Invoked when the StubbornIo establishes a connection
-    pub on_connect_callback: Box<dyn Fn() + Send + Sync>,
+    pub on_connect_callback: Arc<dyn Fn() + Send + Sync>,
 
     /// Invoked when the StubbornIo loses its active connection
-    pub on_disconnect_callback: Box<dyn Fn() + Send + Sync>,
+    pub on_disconnect_callback: Arc<dyn Fn() + Send + Sync>,
 
     /// Invoked when the StubbornIo fails a connection attempt
-    pub on_connect_fail_callback: Box<dyn Fn() + Send + Sync>,
+    pub on_connect_fail_callback: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl ReconnectOptions {
@@ -32,11 +34,11 @@ impl ReconnectOptions {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         ReconnectOptions {
-            retries_to_attempt_fn: Box::new(get_standard_reconnect_strategy),
+            retries_to_attempt_fn: Arc::new(get_standard_reconnect_strategy),
             exit_if_first_connect_fails: true,
-            on_connect_callback: Box::new(|| {}),
-            on_disconnect_callback: Box::new(|| {}),
-            on_connect_fail_callback: Box::new(|| {}),
+            on_connect_callback: Arc::new(|| {}),
+            on_disconnect_callback: Arc::new(|| {}),
+            on_connect_fail_callback: Arc::new(|| {}),
         }
     }
 
@@ -65,7 +67,7 @@ impl ReconnectOptions {
         I: 'static + Send + Sync + Iterator<Item = Duration>,
         IN: IntoIterator<IntoIter = I, Item = Duration>,
     {
-        self.retries_to_attempt_fn = Box::new(move || Box::new(retries_generator().into_iter()));
+        self.retries_to_attempt_fn = Arc::new(move || Box::new(retries_generator().into_iter()));
         self
     }
 
@@ -75,17 +77,17 @@ impl ReconnectOptions {
     }
 
     pub fn with_on_connect_callback(mut self, cb: impl Fn() + 'static + Send + Sync) -> Self {
-        self.on_connect_callback = Box::new(cb);
+        self.on_connect_callback = Arc::new(cb);
         self
     }
 
     pub fn with_on_disconnect_callback(mut self, cb: impl Fn() + 'static + Send + Sync) -> Self {
-        self.on_disconnect_callback = Box::new(cb);
+        self.on_disconnect_callback = Arc::new(cb);
         self
     }
 
     pub fn with_on_connect_fail_callback(mut self, cb: impl Fn() + 'static + Send + Sync) -> Self {
-        self.on_connect_fail_callback = Box::new(cb);
+        self.on_connect_fail_callback = Arc::new(cb);
         self
     }
 }
