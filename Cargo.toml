@@ -1,13 +1,19 @@
 [package]
 name = "stream-reconnect"
 version = "0.3.1"
-authors = ["LightQuantum <self@lightquantum.me>", "David Raifaizen <david.raifaizen@protonmail.com>"]
+authors = ["David Raifaizen <david.raifaizen@protonmail.com>", "LightQuantum <self@lightquantum.me>"]
 edition = "2018"
-description = "stream traits/structs that automatically recover from potential disconnections/interruptions."
+description = "Stream-wrapping traits/structs that automatically recover from potential disconnections/interruptions."
 license = "MIT"
 keywords = ["reconnect", "retry", "stream", "io"]
 repository = "https://github.com/PhotonQuantum/stream-reconnect"
 readme = "README.md"
+exclude = [
+    ".github/*",
+    ".gitignore",
+    ".mergify.yml",
+    "rust-toolchain.toml"
+]
 
 [features]
 default = ["tokio"]
@@ -21,4 +27,4 @@ futures = "0.3"
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "fs", "io-util"] }
 futures = "0.3"
-tokio-tungstenite = "*"
+tokio-tungstenite = "0.15"

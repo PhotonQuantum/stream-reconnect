@@ -11,26 +11,31 @@ use log::{error, info};
 
 use crate::config::ReconnectOptions;
 
-/// Trait that should be implemented for an [AsyncRead] and/or [AsyncWrite]
-/// item to enable it to work with the [StubbornIo] struct.
+/// Trait that should be implemented for an [Stream] and/or [Sink]
+/// item to enable it to work with the [ReconnectStream] struct.
 pub trait UnderlyingStream<C, I, E>: Sized + Unpin
 where
     C: Clone + Send + Unpin,
     E: Error,
 {
-    /// The creation function is used by StubbornIo in order to establish both the initial IO connection
+    /// The creation function is used by [ReconnectStream] in order to establish both the initial IO connection
     /// in addition to performing reconnects.
     fn establish(ctor_arg: C) -> Pin<Box<dyn Future<Output = Result<Self, E>> + Send>>;
 
-    /// When IO items experience an [io::Error](io::Error) during operation, it does not necessarily mean
-    /// it is a disconnect/termination (ex: WouldBlock). This trait provides sensible defaults to classify
-    /// which errors are considered "disconnects", but this can be overridden based on the user's needs.
+    /// When sink send experience an `Error` during operation, it does not necessarily mean
+    /// it is a disconnect/termination (ex: WouldBlock).
+    /// You may specify which errors are considered "disconnects" by this method.
     fn is_write_disconnect_error(&self, err: &E) -> bool;
 
-    fn is_read_disconnect_error(&self, _item: &I) -> bool {
+    /// It's common practice for [Stream] implementations that return an `Err`
+    /// when there's an error.
+    /// You may match the result to tell them apart from normal response.
+    /// By default, no response is considered a "disconnect".
+    fn is_read_disconnect_error(&self, item: &I) -> bool {
         false
     }
 
+    /// This is returned when retry quota exhausted.
     fn exhaust_err() -> E;
 }
 
@@ -42,9 +47,9 @@ struct AttemptsTracker {
 struct ReconnectStatus<T, C, I, E> {
     attempts_tracker: AttemptsTracker,
     reconnect_attempt: Pin<Box<dyn Future<Output = Result<T, E>> + Send>>,
-    _phantom_data: PhantomData<C>,
-    _phantom_data_2: PhantomData<I>,
-    _phantom_data_3: PhantomData<E>,
+    _marker_1: PhantomData<C>,
+    _marker_2: PhantomData<I>,
+    _marker_3: PhantomData<E>,
 }
 
 impl<T, C, I, E> ReconnectStatus<T, C, I, E>
@@ -60,16 +65,16 @@ where
                 retries_remaining: (options.retries_to_attempt_fn)(),
             },
             reconnect_attempt: Box::pin(async { unreachable!("Not going to happen") }),
-            _phantom_data: PhantomData,
-            _phantom_data_2: PhantomData,
-            _phantom_data_3: PhantomData,
+            _marker_1: PhantomData,
+            _marker_2: PhantomData,
+            _marker_3: PhantomData,
         }
     }
 }
 
-/// The StubbornIo is a wrapper over a tokio AsyncRead/AsyncWrite item that will automatically
-/// invoke the [UnderlyingIo::establish] upon initialization and when a reconnect is needed.
-/// Because it implements deref, you are able to invoke all of the original methods on the wrapped IO.
+/// The ReconnectStream is a wrapper over a [Stream]/[Sink] item that will automatically
+/// invoke the [UnderlyingStream::establish] upon initialization and when a reconnect is needed.
+/// Because it implements deref, you are able to invoke all of the original methods on the wrapped stream.
 pub struct ReconnectStream<T, C, I, E> {
     status: Status<T, C, I, E>,
     underlying_io: T,
@@ -105,7 +110,7 @@ where
     I: Unpin,
     E: Error + Unpin,
 {
-    /// Connects or creates a handle to the UnderlyingIo item,
+    /// Connects or creates a handle to the [UnderlyingStream] item,
     /// using the default reconnect options.
     pub async fn connect(ctor_arg: C) -> Result<Self, E> {
         let options = ReconnectOptions::new();

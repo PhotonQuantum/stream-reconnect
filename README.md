@@ -1,44 +1,88 @@
-stream-reconnect
-===========
+# stream-reconnect
 
-> WIP
+[![crates.io](https://img.shields.io/crates/v/stream-reconnect?style=flat-square)](https://crates.io/crates/stream-reconnect)
+[![Documentation](https://img.shields.io/docsrs/stream-reconnect?style=flat-square)](https://docs.rs/stream-reconnect)
 
-This crate provides a stream struct that automatically recover from potential disconnections/interruptions.
+This crate provides a `Stream`/`Sink`-wrapping struct that automatically recover from potential
+disconnections/interruptions.
 
-This is a fork of [stubborn-io](https://github.com/craftytrickster/stubborn-io), which is built for structs implementing
-tokio AsyncRead/AsyncWrite traits.
+This is a fork of [stubborn-io](https://github.com/craftytrickster/stubborn-io), which is built for the same purpose but
+for `AsyncRead`/`AsyncWrite`.
 
 To use with your project, add the following to your Cargo.toml:
 
 ```toml
-stubborn-io = "0.3"
+stream-reconnect = "0.3"
 ```
 
-API Documentation, examples and motivations can be found here -
-https://docs.rs/stubborn-io .
+## Runtime Support
 
-*Note: This crate requires at least version 1.39 of the Rust compiler.*
+This crate supports both `tokio` and `async-std` runtime.
 
+`tokio` support is enabled by default. While used on an `async-std` runtime, change the corresponding dependency
+in `Cargo.toml` to
 
-### Usage Example
+```toml
+stream-reconnect = { version = "0.3", default-features = false, features = ["async-std"] }
+```
 
-In this example, we will see a drop in replacement for tokio's TcpStream, with the
-distinction that it will automatically attempt to reconnect in the face of connectivity failures.
+## Example
+
+In this example, we will see a drop in replacement for tungstenite's WebSocketStream, with the distinction that it will
+automatically attempt to reconnect in the face of connectivity failures.
 
 ```rust
-use stubborn_io::StubbornTcpStream;
-use tokio::io::AsyncWriteExt;
+struct MyWs(WebSocketStream<MaybeTlsStream<TcpStream>>);
 
-let addr = "localhost:8080";
+// implement Stream & Sink for MyWs
 
-async {
-    // we are connecting to the TcpStream using the default built in options.
-    // these can also be customized (for example, the amount of reconnect attempts,
-    // wait duration, etc) using the connect_with_options method.
-    let mut tcp_stream = StubbornTcpStream::connect(addr).await.unwrap();
-    // once we acquire the wrapped IO, in this case, a TcpStream, we can
-    // call all of the regular methods on it, as seen below
-    tcp_stream.write_all(b"hello world!").await.unwrap();
-};
+impl UnderlyingStream<String, Message, WsError> for MyWs {
+    // Establishes connection.
+    // Additionally, this will be used when reconnect tries are attempted.
+    fn establish(addr: String) -> Pin<Box<dyn Future<Output=Result<Self, WsError>> + Send>> {
+        Box::pin(async move {
+            // In this case, we are trying to connect to the WebSocket endpoint
+            let ws_connection = connect_async(addr).await.unwrap().0;
+            Ok(MyWs(ws_connection))
+        })
+    }
+
+    // The following errors are considered disconnect errors.
+    fn is_write_disconnect_error(&self, err: &WsError) -> bool {
+        matches!(
+                err,
+                WsError::ConnectionClosed
+                    | WsError::AlreadyClosed
+                    | WsError::Io(_)
+                    | WsError::Tls(_)
+                    | WsError::Protocol(_)
+            )
+    }
+
+    // If an `Err` is read, then there might be an disconnection.
+    fn is_read_disconnect_error(&self, item: &Result<Message, WsError>) -> bool {
+        if let Err(e) = item {
+            self.is_write_disconnect_error(e)
+        } else {
+            false
+        }
+    }
+
+    // Return "Exhausted" if all retry attempts are failed.
+    fn exhaust_err() -> WsError {
+        WsError::Io(io::Error::new(io::ErrorKind::Other, "Exhausted"))
+    }
+}
+
+type ReconnectWs = ReconnectStream<MyWs, String, Result<Message, WsError>, WsError>;
+
+#[tokio::main]
+async fn main() {
+    let mut ws_stream: ReconnectWs = ReconnectWs::connect(String::from("wss://localhost:8000"));
+    ws_stream.send("hello world!").await.unwrap();
+}
 ```
 
+## License
+
+MIT

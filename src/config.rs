@@ -1,4 +1,4 @@
-//! Provides options to configure the behavior of stubborn-io items,
+//! Provides options to configure the behavior of reconnect-stream items,
 //! specifically related to reconnect behavior.
 
 use std::sync::Arc;
@@ -6,29 +6,29 @@ use std::time::Duration;
 
 pub type DurationIterator = Box<dyn Iterator<Item = Duration> + Send + Sync>;
 
-/// User specified options that control the behavior of the stubborn-io upon disconnect.
+/// User specified options that control the behavior of the [ReconnectStream](crate::ReconnectStream) upon disconnect.
 #[derive(Clone)]
 pub struct ReconnectOptions {
     /// Represents a function that generates an Iterator
     /// to schedule the wait between reconnection attempts.
     pub retries_to_attempt_fn: Arc<dyn Fn() -> DurationIterator + Send + Sync>,
 
-    /// If this is set to true, if the initial connect method of the stubborn-io item fails,
+    /// If this is set to true, if the initial connect method of the [ReconnectStream](crate::ReconnectStream) item fails,
     /// then no further reconnects will be attempted
     pub exit_if_first_connect_fails: bool,
 
-    /// Invoked when the StubbornIo establishes a connection
+    /// Invoked when the [ReconnectStream](crate::ReconnectStream) establishes a connection
     pub on_connect_callback: Arc<dyn Fn() + Send + Sync>,
 
-    /// Invoked when the StubbornIo loses its active connection
+    /// Invoked when the [ReconnectStream](crate::ReconnectStream) loses its active connection
     pub on_disconnect_callback: Arc<dyn Fn() + Send + Sync>,
 
-    /// Invoked when the StubbornIo fails a connection attempt
+    /// Invoked when the [ReconnectStream](crate::ReconnectStream) fails a connection attempt
     pub on_connect_fail_callback: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl ReconnectOptions {
-    /// By default, the stubborn-io will not try to reconnect if the first connect attempt fails.
+    /// By default, the [ReconnectStream](crate::ReconnectStream) will not try to reconnect if the first connect attempt fails.
     /// By default, the retries iterator waits longer and longer between reconnection attempts,
     /// until it eventually perpetually tries to reconnect every 30 minutes.
     #[allow(clippy::new_without_default)]
@@ -50,7 +50,7 @@ impl ReconnectOptions {
     /// use std::time::Duration;
     /// use stream_reconnect::ReconnectOptions;
     ///
-    /// // With the below vector, the stubborn-io item will try to reconnect three times,
+    /// // With the below vector, the ReconnectStream item will try to reconnect three times,
     /// // waiting 2 seconds between each attempt. Once all three tries are exhausted,
     /// // it will stop attempting.
     /// let options = ReconnectOptions::new().with_retries_generator(|| {
