@@ -15,6 +15,8 @@ To use with your project, add the following to your Cargo.toml:
 stream-reconnect = "0.3"
 ```
 
+*Minimum supported rust version: 1.43.1*
+
 ## Runtime Support
 
 This crate supports both `tokio` and `async-std` runtime.

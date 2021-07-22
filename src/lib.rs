@@ -9,7 +9,7 @@
 //!
 //! *This crate is a fork of [stubborn-io](https://github.com/craftytrickster/stubborn-io).*
 //!
-//! *This crate requires at least version 1.39 of the Rust compiler.*
+//! *Minimum supported rust version: 1.43.1*
 //!
 //! ### Runtime Support
 //!
