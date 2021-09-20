@@ -7,7 +7,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::{ready, Sink, Stream};
-use log::{error, info};
+use log::{debug, error, info};
 
 use crate::config::ReconnectOptions;
 
@@ -120,7 +120,7 @@ where
     pub async fn connect_with_options(ctor_arg: C, options: ReconnectOptions) -> Result<Self, E> {
         let tcp = match T::establish(ctor_arg.clone()).await {
             Ok(tcp) => {
-                info!("Initial connection succeeded.");
+                debug!("Initial connection succeeded.");
                 (options.on_connect_callback)();
                 tcp
             }
@@ -138,7 +138,7 @@ where
                 for (i, duration) in (options.retries_to_attempt_fn)().enumerate() {
                     let reconnect_num = i + 1;
 
-                    info!(
+                    debug!(
                         "Will re-perform initial connect attempt #{} in {:?}.",
                         reconnect_num, duration
                     );
@@ -148,13 +148,13 @@ where
                     #[cfg(feature = "async-std")]
                     async_std::task::sleep(duration).await;
 
-                    info!("Attempting reconnect #{} now.", reconnect_num);
+                    debug!("Attempting reconnect #{} now.", reconnect_num);
 
                     match T::establish(ctor_arg.clone()).await {
                         Ok(tcp) => {
                             result = Ok(tcp);
                             (options.on_connect_callback)();
-                            info!("Initial connection successfully established.");
+                            debug!("Initial connection successfully established.");
                             break;
                         }
                         Err(e) => {
@@ -223,13 +223,13 @@ where
 
             let reconnect_attempt = async move {
                 future_instant.await;
-                info!("Attempting reconnect #{} now.", cur_num);
+                debug!("Attempting reconnect #{} now.", cur_num);
                 T::establish(ctor_arg).await
             };
 
             reconnect_status.reconnect_attempt = Box::pin(reconnect_attempt);
 
-            info!(
+            debug!(
                 "Will perform reconnect attempt #{} in {:?}.",
                 reconnect_status.attempts_tracker.attempt_num, next_duration
             );
