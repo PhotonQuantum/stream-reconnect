@@ -1,6 +1,6 @@
 [package]
 name = "stream-reconnect"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["David Raifaizen <david.raifaizen@protonmail.com>", "LightQuantum <self@lightquantum.me>"]
 edition = "2018"
 description = "Stream-wrapping traits/structs that automatically recover from potential disconnections/interruptions."
