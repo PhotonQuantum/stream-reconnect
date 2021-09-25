@@ -126,6 +126,3 @@ pub use crate::stream::{ReconnectStream, UnderlyingStream};
 
 pub mod config;
 mod stream;
-
-#[cfg(all(feature = "tokio", feature = "async-std"))]
-compile_error!("feature \"tokio\" and feature \"async-std\" cannot be enabled at the same time");

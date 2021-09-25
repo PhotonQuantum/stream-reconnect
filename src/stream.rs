@@ -144,9 +144,11 @@ where
                     );
 
                     #[cfg(feature = "tokio")]
-                    tokio::time::sleep(duration).await;
+                    let sleep_fut = tokio::time::sleep(duration);
                     #[cfg(feature = "async-std")]
-                    async_std::task::sleep(duration).await;
+                    let sleep_fut = async_std::task::sleep(duration);
+
+                    sleep_fut.await;
 
                     debug!("Attempting reconnect #{} now.", reconnect_num);
 
