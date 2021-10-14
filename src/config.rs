@@ -8,23 +8,33 @@ pub type DurationIterator = Box<dyn Iterator<Item = Duration> + Send + Sync>;
 
 /// User specified options that control the behavior of the [ReconnectStream](crate::ReconnectStream) upon disconnect.
 #[derive(Clone)]
-pub struct ReconnectOptions {
-    /// Represents a function that generates an Iterator
-    /// to schedule the wait between reconnection attempts.
-    pub retries_to_attempt_fn: Arc<dyn Fn() -> DurationIterator + Send + Sync>,
+pub struct ReconnectOptions(Box<Inner>);
 
-    /// If this is set to true, if the initial connect method of the [ReconnectStream](crate::ReconnectStream) item fails,
-    /// then no further reconnects will be attempted
-    pub exit_if_first_connect_fails: bool,
+impl ReconnectOptions {
+    pub(crate) fn retries_to_attempt_fn(&self) -> &Arc<dyn Fn() -> DurationIterator + Send + Sync> {
+        &self.0.retries_to_attempt_fn
+    }
+    pub(crate) fn exit_if_first_connect_fails(&self) -> bool {
+        self.0.exit_if_first_connect_fails
+    }
+    pub(crate) fn on_connect_callback(&self) -> &Arc<dyn Fn() + Send + Sync> {
+        &self.0.on_connect_callback
+    }
+    pub(crate) fn on_disconnect_callback(&self) -> &Arc<dyn Fn() + Send + Sync> {
+        &self.0.on_disconnect_callback
+    }
+    pub(crate) fn on_connect_fail_callback(&self) -> &Arc<dyn Fn() + Send + Sync> {
+        &self.0.on_connect_fail_callback
+    }
+}
 
-    /// Invoked when the [ReconnectStream](crate::ReconnectStream) establishes a connection
-    pub on_connect_callback: Arc<dyn Fn() + Send + Sync>,
-
-    /// Invoked when the [ReconnectStream](crate::ReconnectStream) loses its active connection
-    pub on_disconnect_callback: Arc<dyn Fn() + Send + Sync>,
-
-    /// Invoked when the [ReconnectStream](crate::ReconnectStream) fails a connection attempt
-    pub on_connect_fail_callback: Arc<dyn Fn() + Send + Sync>,
+#[derive(Clone)]
+struct Inner {
+    retries_to_attempt_fn: Arc<dyn Fn() -> DurationIterator + Send + Sync>,
+    exit_if_first_connect_fails: bool,
+    on_connect_callback: Arc<dyn Fn() + Send + Sync>,
+    on_disconnect_callback: Arc<dyn Fn() + Send + Sync>,
+    on_connect_fail_callback: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl ReconnectOptions {
@@ -33,17 +43,19 @@ impl ReconnectOptions {
     /// until it eventually perpetually tries to reconnect every 30 minutes.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        ReconnectOptions {
+        ReconnectOptions(Box::new(Inner {
             retries_to_attempt_fn: Arc::new(get_standard_reconnect_strategy),
             exit_if_first_connect_fails: true,
             on_connect_callback: Arc::new(|| {}),
             on_disconnect_callback: Arc::new(|| {}),
             on_connect_fail_callback: Arc::new(|| {}),
-        }
+        }))
     }
 
-    /// This convenience function allows the user to provide any function that returns a value
-    /// that is convertible into an iterator, such as an actual iterator or a Vec.
+    /// Represents a function that generates an Iterator
+    /// to schedule the wait between reconnection attempts.
+    /// This method allows the user to provide any function that returns a value
+    /// which is convertible into an iterator, such as an actual iterator or a Vec.
     /// # Examples
     ///
     /// ```
@@ -67,27 +79,32 @@ impl ReconnectOptions {
         I: 'static + Send + Sync + Iterator<Item = Duration>,
         IN: IntoIterator<IntoIter = I, Item = Duration>,
     {
-        self.retries_to_attempt_fn = Arc::new(move || Box::new(retries_generator().into_iter()));
+        self.0.retries_to_attempt_fn = Arc::new(move || Box::new(retries_generator().into_iter()));
         self
     }
 
+    /// If this is set to true, if the initial connect method of the [ReconnectStream](crate::ReconnectStream) item fails,
+    /// then no further reconnects will be attempted
     pub fn with_exit_if_first_connect_fails(mut self, value: bool) -> Self {
-        self.exit_if_first_connect_fails = value;
+        self.0.exit_if_first_connect_fails = value;
         self
     }
 
+    /// Invoked when the [ReconnectStream](crate::ReconnectStream) establishes a connection
     pub fn with_on_connect_callback(mut self, cb: impl Fn() + 'static + Send + Sync) -> Self {
-        self.on_connect_callback = Arc::new(cb);
+        self.0.on_connect_callback = Arc::new(cb);
         self
     }
 
+    /// Invoked when the [ReconnectStream](crate::ReconnectStream) loses its active connection
     pub fn with_on_disconnect_callback(mut self, cb: impl Fn() + 'static + Send + Sync) -> Self {
-        self.on_disconnect_callback = Arc::new(cb);
+        self.0.on_disconnect_callback = Arc::new(cb);
         self
     }
 
+    /// Invoked when the [ReconnectStream](crate::ReconnectStream) fails a connection attempt
     pub fn with_on_connect_fail_callback(mut self, cb: impl Fn() + 'static + Send + Sync) -> Self {
-        self.on_connect_fail_callback = Arc::new(cb);
+        self.0.on_connect_fail_callback = Arc::new(cb);
         self
     }
 }

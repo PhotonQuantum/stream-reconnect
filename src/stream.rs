@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::future::Future;
+use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
@@ -31,6 +32,7 @@ where
     /// when there's an error.
     /// You may match the result to tell them apart from normal response.
     /// By default, no response is considered a "disconnect".
+    #[allow(unused_variables)]
     fn is_read_disconnect_error(&self, item: &I) -> bool {
         false
     }
@@ -62,7 +64,7 @@ where
         ReconnectStatus {
             attempts_tracker: AttemptsTracker {
                 attempt_num: 0,
-                retries_remaining: (options.retries_to_attempt_fn)(),
+                retries_remaining: (options.retries_to_attempt_fn())(),
             },
             reconnect_attempt: Box::pin(async { unreachable!("Not going to happen") }),
             _marker_1: PhantomData,
@@ -118,71 +120,62 @@ where
     }
 
     pub async fn connect_with_options(ctor_arg: C, options: ReconnectOptions) -> Result<Self, E> {
-        let tcp = match T::establish(ctor_arg.clone()).await {
-            Ok(tcp) => {
-                debug!("Initial connection succeeded.");
-                (options.on_connect_callback)();
-                tcp
-            }
-            Err(e) => {
-                error!("Initial connection failed due to: {:?}.", e);
-                (options.on_connect_fail_callback)();
-
-                if options.exit_if_first_connect_fails {
-                    error!("Bailing after initial connection failure.");
-                    return Err(e);
+        let tries = (**options.retries_to_attempt_fn())()
+            .map(Some)
+            .chain(once(None));
+        let mut result = None;
+        for (counter, maybe_delay) in tries.enumerate() {
+            match T::establish(ctor_arg.clone()).await {
+                Ok(inner) => {
+                    debug!("Initial connection succeeded.");
+                    (options.on_connect_callback())();
+                    result = Some(Ok(inner));
+                    break;
                 }
+                Err(e) => {
+                    error!("Connection failed due to: {:?}.", e);
+                    (options.on_connect_fail_callback())();
 
-                let mut result = Err(e);
-
-                for (i, duration) in (options.retries_to_attempt_fn)().enumerate() {
-                    let reconnect_num = i + 1;
-
-                    debug!(
-                        "Will re-perform initial connect attempt #{} in {:?}.",
-                        reconnect_num, duration
-                    );
-
-                    #[cfg(feature = "tokio")]
-                    let sleep_fut = tokio::time::sleep(duration);
-                    #[cfg(feature = "async-std")]
-                    let sleep_fut = async_std::task::sleep(duration);
-
-                    sleep_fut.await;
-
-                    debug!("Attempting reconnect #{} now.", reconnect_num);
-
-                    match T::establish(ctor_arg.clone()).await {
-                        Ok(tcp) => {
-                            result = Ok(tcp);
-                            (options.on_connect_callback)();
-                            debug!("Initial connection successfully established.");
-                            break;
-                        }
-                        Err(e) => {
-                            (options.on_connect_fail_callback)();
-                            result = Err(e);
-                        }
-                    }
-                }
-
-                match result {
-                    Ok(tcp) => tcp,
-                    Err(e) => {
-                        error!("No more re-connect retries remaining. Never able to establish initial connection.");
+                    if options.exit_if_first_connect_fails() {
+                        error!("Bailing after initial connection failure.");
                         return Err(e);
                     }
+
+                    result = Some(Err(e));
+
+                    if let Some(delay) = maybe_delay {
+                        debug!(
+                            "Will re-perform initial connect attempt #{} in {:?}.",
+                            counter + 1,
+                            delay
+                        );
+
+                        #[cfg(feature = "tokio")]
+                        let sleep_fut = tokio::time::sleep(delay);
+                        #[cfg(feature = "async-std")]
+                        let sleep_fut = async_std::task::sleep(delay);
+
+                        sleep_fut.await;
+
+                        debug!("Attempting reconnect #{} now.", counter + 1);
+                    }
                 }
             }
-        };
+        }
 
-        Ok(ReconnectStream {
-            status: Status::Connected,
-            ctor_arg,
-            underlying_io: tcp,
-            options,
-            _marker: PhantomData,
-        })
+        match result.unwrap() {
+            Ok(inner) => Ok(ReconnectStream {
+                status: Status::Connected,
+                ctor_arg,
+                underlying_io: inner,
+                options,
+                _marker: PhantomData,
+            }),
+            Err(e) => {
+                error!("No more re-connect retries remaining. Never able to establish initial connection.");
+                Err(e)
+            }
+        }
     }
 
     fn on_disconnect(mut self: Pin<&mut Self>, cx: &mut Context) {
@@ -190,11 +183,11 @@ where
             // initial disconnect
             Status::Connected => {
                 error!("Disconnect occurred");
-                (self.options.on_disconnect_callback)();
+                (self.options.on_disconnect_callback())();
                 self.status = Status::Disconnected(ReconnectStatus::new(&self.options));
             }
             Status::Disconnected(_) => {
-                (self.options.on_connect_fail_callback)();
+                (self.options.on_connect_fail_callback())();
             }
             Status::FailedAndExhausted => {
                 unreachable!("on_disconnect will not occur for already exhausted state.")
@@ -255,7 +248,7 @@ where
                 info!("Connection re-established");
                 cx.waker().wake_by_ref();
                 self.status = Status::Connected;
-                (self.options.on_connect_callback)();
+                (self.options.on_connect_callback())();
                 self.underlying_io = underlying_io;
             }
             Poll::Ready(Err(err)) => {
