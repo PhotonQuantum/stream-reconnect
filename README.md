@@ -28,6 +28,10 @@ in `Cargo.toml` to
 stream-reconnect = { version = "0.3", default-features = false, features = ["async-std"] }
 ```
 
+## Feature Gates
+
+`not-send` - allow the establish function to be non thread-safe.
+
 ## Example
 
 In this example, we will see a drop in replacement for tungstenite's WebSocketStream, with the distinction that it will

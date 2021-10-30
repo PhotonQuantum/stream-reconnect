@@ -21,6 +21,10 @@
 //! stream-reconnect = { version = "0.3", default-features = false, features = ["async-std"] }
 //! ```
 //!
+//! ## Feature Gates
+//!
+//! `not-send` - allow the establish function to be non thread-safe.
+//!
 //! ### Motivations (preserved from stubborn-io)
 //! This crate was created because I was working on a service that needed to fetch data from a remote server
 //! via a tokio TcpConnection. It normally worked perfectly (as does all of my code ☺), but every time the
