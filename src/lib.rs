@@ -50,7 +50,7 @@
 //!
 //!     // Establishes connection.
 //!     // Additionally, this will be used when reconnect tries are attempted.
-//!     fn establish(addr: String) -> Pin<Box<dyn Future<Output = Result<Self::Stream, WsError>> + Send>> {
+//!     fn establish(addr: String) -> Pin<Box<dyn Future<Output = Result<Self::Stream, WsError>>>> {
 //!         Box::pin(async move {
 //!             // In this case, we are trying to connect to the WebSocket endpoint
 //!             let ws_connection = connect_async(addr).await.unwrap().0;

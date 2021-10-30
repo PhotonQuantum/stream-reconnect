@@ -32,7 +32,7 @@ struct DummyStreamConnector;
 impl UnderlyingStream<DummyCtor, Vec<u8>, io::Error> for DummyStreamConnector {
     type Stream = DummyStream;
 
-    fn establish(ctor: DummyCtor) -> Pin<Box<dyn Future<Output = io::Result<DummyStream>> + Send>> {
+    fn establish(ctor: DummyCtor) -> Pin<Box<dyn Future<Output = io::Result<DummyStream>>>> {
         let mut connect_attempt_outcome_results = ctor.connect_outcomes.lock().unwrap();
 
         let should_succeed = connect_attempt_outcome_results.remove(0);

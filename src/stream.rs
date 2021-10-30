@@ -23,7 +23,7 @@ where
 
     /// The creation function is used by [ReconnectStream] in order to establish both the initial IO connection
     /// in addition to performing reconnects.
-    fn establish(ctor_arg: C) -> Pin<Box<dyn Future<Output = Result<Self::Stream, E>> + Send>>;
+    fn establish(ctor_arg: C) -> Pin<Box<dyn Future<Output = Result<Self::Stream, E>>>>;
 
     /// When sink send experience an `Error` during operation, it does not necessarily mean
     /// it is a disconnect/termination (ex: WouldBlock).
@@ -55,7 +55,7 @@ where
     E: Error,
 {
     attempts_tracker: AttemptsTracker,
-    reconnect_attempt: Pin<Box<dyn Future<Output = Result<T::Stream, E>> + Send>>,
+    reconnect_attempt: Pin<Box<dyn Future<Output = Result<T::Stream, E>>>>,
     _marker: PhantomData<(C, I, E)>,
 }
 
