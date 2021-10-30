@@ -63,3 +63,28 @@ jobs:
         with:
           command: test
           args: --workspace
+
+  test-not-send:
+    name: Test (not-send)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        name: Checkout 🛎️
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-stable-${{ hashFiles('**/Cargo.lock') }}-test
+      - uses: actions-rs/toolchain@v1
+        name: Setup Cargo Toolchain 🛎️
+        with:
+          profile: minimal
+          toolchain: stable
+          default: true
+      - uses: actions-rs/cargo@v1
+        name: Running Tests 🚀
+        with:
+          command: test
+          args: --workspace --features not-send

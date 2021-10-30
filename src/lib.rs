@@ -45,12 +45,13 @@
 //!
 //! struct MyWs;
 //!
+//! # #[cfg(not(feature = "not-send"))]
 //! impl UnderlyingStream<String, Result<Message, WsError>, WsError> for MyWs {
 //!     type Stream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 //!
 //!     // Establishes connection.
 //!     // Additionally, this will be used when reconnect tries are attempted.
-//!     fn establish(addr: String) -> Pin<Box<dyn Future<Output = Result<Self::Stream, WsError>>>> {
+//!     fn establish(addr: String) -> Pin<Box<dyn Future<Output = Result<Self::Stream, WsError>> + Send>> {
 //!         Box::pin(async move {
 //!             // In this case, we are trying to connect to the WebSocket endpoint
 //!             let ws_connection = connect_async(addr).await.unwrap().0;
@@ -85,8 +86,10 @@
 //!     }
 //! }
 //!
+//! # #[cfg(not(feature = "not-send"))]
 //! type ReconnectWs = ReconnectStream<MyWs, String, Result<Message, WsError>, WsError>;
 //!
+//! # #[cfg(not(feature = "not-send"))]
 //! # async fn test() {
 //! let mut ws_stream: ReconnectWs = ReconnectWs::connect(String::from("wss://localhost:8000")).await.unwrap();
 //! ws_stream.send(Message::text(String::from("hello world!"))).await.unwrap();

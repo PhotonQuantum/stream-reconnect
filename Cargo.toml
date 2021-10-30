@@ -17,6 +17,7 @@ exclude = [
 
 [features]
 default = ["tokio"]
+not-send = []
 
 [dependencies]
 tokio = { version = "1", features = ["time"], optional = true }

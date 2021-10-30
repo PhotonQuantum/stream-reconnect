@@ -32,6 +32,23 @@ struct DummyStreamConnector;
 impl UnderlyingStream<DummyCtor, Vec<u8>, io::Error> for DummyStreamConnector {
     type Stream = DummyStream;
 
+    #[cfg(not(feature = "not-send"))]
+    fn establish(ctor: DummyCtor) -> Pin<Box<dyn Future<Output = io::Result<DummyStream>> + Send>> {
+        let mut connect_attempt_outcome_results = ctor.connect_outcomes.lock().unwrap();
+
+        let should_succeed = connect_attempt_outcome_results.remove(0);
+        if should_succeed {
+            let dummy_io = DummyStream {
+                poll_read_results: ctor.poll_read_results.clone(),
+            };
+
+            Box::pin(async { Ok(dummy_io) })
+        } else {
+            Box::pin(async { Err(io::Error::new(ErrorKind::NotConnected, "So unfortunate")) })
+        }
+    }
+
+    #[cfg(feature = "not-send")]
     fn establish(ctor: DummyCtor) -> Pin<Box<dyn Future<Output = io::Result<DummyStream>>>> {
         let mut connect_attempt_outcome_results = ctor.connect_outcomes.lock().unwrap();
 
