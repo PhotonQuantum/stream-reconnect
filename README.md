@@ -34,23 +34,23 @@ In this example, we will see a drop in replacement for tungstenite's WebSocketSt
 automatically attempt to reconnect in the face of connectivity failures.
 
 ```rust
-struct MyWs(WebSocketStream<MaybeTlsStream<TcpStream>>);
+struct MyWs;
 
-// implement Stream & Sink for MyWs
+impl UnderlyingStream<String, Result<Message, WsError>, WsError> for MyWs {
+    type Stream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-impl UnderlyingStream<String, Message, WsError> for MyWs {
     // Establishes connection.
     // Additionally, this will be used when reconnect tries are attempted.
-    fn establish(addr: String) -> Pin<Box<dyn Future<Output=Result<Self, WsError>> + Send>> {
+    fn establish(addr: String) -> Pin<Box<dyn Future<Output=Result<Self::Stream, WsError>> + Send>> {
         Box::pin(async move {
             // In this case, we are trying to connect to the WebSocket endpoint
             let ws_connection = connect_async(addr).await.unwrap().0;
-            Ok(MyWs(ws_connection))
+            Ok(ws_connection)
         })
     }
 
     // The following errors are considered disconnect errors.
-    fn is_write_disconnect_error(&self, err: &WsError) -> bool {
+    fn is_write_disconnect_error(err: &WsError) -> bool {
         matches!(
                 err,
                 WsError::ConnectionClosed
@@ -62,9 +62,9 @@ impl UnderlyingStream<String, Message, WsError> for MyWs {
     }
 
     // If an `Err` is read, then there might be an disconnection.
-    fn is_read_disconnect_error(&self, item: &Result<Message, WsError>) -> bool {
+    fn is_read_disconnect_error(item: &Result<Message, WsError>) -> bool {
         if let Err(e) = item {
-            self.is_write_disconnect_error(e)
+            Self::is_write_disconnect_error(e)
         } else {
             false
         }
