@@ -1,4 +1,3 @@
-use futures::{Sink, Stream};
 use std::future::Future;
 use std::io::{self, Error, ErrorKind};
 use std::pin::Pin;
@@ -7,6 +6,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
 use std::time::Duration;
+
+use futures::{Sink, Stream};
+
 use stream_reconnect::ReconnectOptions;
 use stream_reconnect::{ReconnectStream, UnderlyingStream};
 
@@ -25,8 +27,12 @@ type ConnectOutcomes = Arc<Mutex<Vec<bool>>>;
 
 type PollReadResults = Arc<Mutex<Vec<(Poll<io::Result<()>>, Vec<u8>)>>>;
 
-impl UnderlyingStream<DummyCtor, Vec<u8>, io::Error> for DummyStream {
-    fn establish(ctor: DummyCtor) -> Pin<Box<dyn Future<Output = io::Result<Self>> + Send>> {
+struct DummyStreamConnector;
+
+impl UnderlyingStream<DummyCtor, Vec<u8>, io::Error> for DummyStreamConnector {
+    type Stream = DummyStream;
+
+    fn establish(ctor: DummyCtor) -> Pin<Box<dyn Future<Output = io::Result<DummyStream>> + Send>> {
         let mut connect_attempt_outcome_results = ctor.connect_outcomes.lock().unwrap();
 
         let should_succeed = connect_attempt_outcome_results.remove(0);
@@ -41,7 +47,7 @@ impl UnderlyingStream<DummyCtor, Vec<u8>, io::Error> for DummyStream {
         }
     }
 
-    fn is_write_disconnect_error(&self, err: &Error) -> bool {
+    fn is_write_disconnect_error(err: &Error) -> bool {
         use std::io::ErrorKind::*;
 
         matches!(
@@ -67,7 +73,7 @@ impl UnderlyingStream<DummyCtor, Vec<u8>, io::Error> for DummyStream {
     }
 }
 
-type ReconnectDummy = ReconnectStream<DummyStream, DummyCtor, Vec<u8>, io::Error>;
+type ReconnectDummy = ReconnectStream<DummyStreamConnector, DummyCtor, Vec<u8>, io::Error>;
 
 impl Stream for DummyStream {
     type Item = Vec<u8>;
@@ -193,10 +199,11 @@ pub mod instantiating {
 
 #[cfg(test)]
 mod already_connected {
-    use super::*;
+    use std::str::from_utf8;
+
     use futures::stream::StreamExt;
 
-    use std::str::from_utf8;
+    use super::*;
 
     #[tokio::test]
     async fn should_ignore_non_fatal_errors_and_continue_as_connected() {

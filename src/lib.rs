@@ -43,50 +43,23 @@
 //! use futures::{SinkExt, Stream, Sink};
 //! use std::task::{Context, Poll};
 //!
-//! struct MyWs(WebSocketStream<MaybeTlsStream<TcpStream>>);
-//!
-//! // implement Stream & Sink for MyWs
-//! # impl Stream for MyWs {
-//! #     type Item = Result<Message, WsError>;
-//! #
-//! #     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>>{
-//! #         Pin::new(&mut self.0).poll_next(cx)
-//! #     }
-//! # }
-//! #
-//! # impl Sink<Message> for MyWs {
-//! #     type Error = WsError;
-//! #
-//! #     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>{
-//! #         Pin::new(&mut self.0).poll_ready(cx)
-//! #     }
-//! #
-//! #     fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error>{
-//! #         Pin::new(&mut self.0).start_send(item)
-//! #     }
-//! #
-//! #     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>{
-//! #         Pin::new(&mut self.0).poll_flush(cx)
-//! #     }
-//! #
-//! #     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>{
-//! #         Pin::new(&mut self.0).poll_close(cx)
-//! #     }
-//! # }
+//! struct MyWs;
 //!
 //! impl UnderlyingStream<String, Result<Message, WsError>, WsError> for MyWs {
+//!     type Stream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+//!
 //!     // Establishes connection.
 //!     // Additionally, this will be used when reconnect tries are attempted.
-//!     fn establish(addr: String) -> Pin<Box<dyn Future<Output = Result<Self, WsError>> + Send>> {
+//!     fn establish(addr: String) -> Pin<Box<dyn Future<Output = Result<Self::Stream, WsError>> + Send>> {
 //!         Box::pin(async move {
 //!             // In this case, we are trying to connect to the WebSocket endpoint
 //!             let ws_connection = connect_async(addr).await.unwrap().0;
-//!             Ok(MyWs(ws_connection))
+//!             Ok(ws_connection)
 //!         })
 //!     }
 //!
 //!     // The following errors are considered disconnect errors.
-//!     fn is_write_disconnect_error(&self, err: &WsError) -> bool {
+//!     fn is_write_disconnect_error(err: &WsError) -> bool {
 //!         matches!(
 //!                 err,
 //!                 WsError::ConnectionClosed
@@ -98,9 +71,9 @@
 //!     }
 //!
 //!     // If an `Err` is read, then there might be an disconnection.
-//!     fn is_read_disconnect_error(&self, item: &Result<Message, WsError>) -> bool {
+//!     fn is_read_disconnect_error(item: &Result<Message, WsError>) -> bool {
 //!         if let Err(e) = item {
-//!             self.is_write_disconnect_error(e)
+//!             Self::is_write_disconnect_error(e)
 //!         } else {
 //!             false
 //!         }

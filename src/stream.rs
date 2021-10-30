@@ -14,26 +14,28 @@ use crate::config::ReconnectOptions;
 
 /// Trait that should be implemented for an [Stream] and/or [Sink]
 /// item to enable it to work with the [ReconnectStream] struct.
-pub trait UnderlyingStream<C, I, E>: Sized + Unpin
+pub trait UnderlyingStream<C, I, E>
 where
     C: Clone + Send + Unpin,
     E: Error,
 {
+    type Stream: Sized + Unpin;
+
     /// The creation function is used by [ReconnectStream] in order to establish both the initial IO connection
     /// in addition to performing reconnects.
-    fn establish(ctor_arg: C) -> Pin<Box<dyn Future<Output = Result<Self, E>> + Send>>;
+    fn establish(ctor_arg: C) -> Pin<Box<dyn Future<Output = Result<Self::Stream, E>> + Send>>;
 
     /// When sink send experience an `Error` during operation, it does not necessarily mean
     /// it is a disconnect/termination (ex: WouldBlock).
     /// You may specify which errors are considered "disconnects" by this method.
-    fn is_write_disconnect_error(&self, err: &E) -> bool;
+    fn is_write_disconnect_error(err: &E) -> bool;
 
     /// It's common practice for [Stream] implementations that return an `Err`
     /// when there's an error.
     /// You may match the result to tell them apart from normal response.
     /// By default, no response is considered a "disconnect".
     #[allow(unused_variables)]
-    fn is_read_disconnect_error(&self, item: &I) -> bool {
+    fn is_read_disconnect_error(item: &I) -> bool {
         false
     }
 
@@ -46,12 +48,15 @@ struct AttemptsTracker {
     retries_remaining: Box<dyn Iterator<Item = Duration> + Send>,
 }
 
-struct ReconnectStatus<T, C, I, E> {
+struct ReconnectStatus<T, C, I, E>
+where
+    T: UnderlyingStream<C, I, E>,
+    C: Clone + Send + Unpin,
+    E: Error,
+{
     attempts_tracker: AttemptsTracker,
-    reconnect_attempt: Pin<Box<dyn Future<Output = Result<T, E>> + Send>>,
-    _marker_1: PhantomData<C>,
-    _marker_2: PhantomData<I>,
-    _marker_3: PhantomData<E>,
+    reconnect_attempt: Pin<Box<dyn Future<Output = Result<T::Stream, E>> + Send>>,
+    _marker: PhantomData<(C, I, E)>,
 }
 
 impl<T, C, I, E> ReconnectStatus<T, C, I, E>
@@ -67,9 +72,7 @@ where
                 retries_remaining: (options.retries_to_attempt_fn())(),
             },
             reconnect_attempt: Box::pin(async { unreachable!("Not going to happen") }),
-            _marker_1: PhantomData,
-            _marker_2: PhantomData,
-            _marker_3: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -77,31 +80,50 @@ where
 /// The ReconnectStream is a wrapper over a [Stream]/[Sink] item that will automatically
 /// invoke the [UnderlyingStream::establish] upon initialization and when a reconnect is needed.
 /// Because it implements deref, you are able to invoke all of the original methods on the wrapped stream.
-pub struct ReconnectStream<T, C, I, E> {
+pub struct ReconnectStream<T, C, I, E>
+where
+    T: UnderlyingStream<C, I, E>,
+    C: Clone + Send + Unpin,
+    E: Error,
+{
     status: Status<T, C, I, E>,
-    underlying_io: T,
+    stream: T::Stream,
     options: ReconnectOptions,
     ctor_arg: C,
-    _marker: PhantomData<I>,
 }
 
-enum Status<T, C, I, E> {
+enum Status<T, C, I, E>
+where
+    T: UnderlyingStream<C, I, E>,
+    C: Clone + Send + Unpin,
+    E: Error,
+{
     Connected,
     Disconnected(ReconnectStatus<T, C, I, E>),
     FailedAndExhausted, // the way one feels after programming in dynamically typed languages
 }
 
-impl<T, C, I, E> Deref for ReconnectStream<T, C, I, E> {
-    type Target = T;
+impl<T, C, I, E> Deref for ReconnectStream<T, C, I, E>
+where
+    T: UnderlyingStream<C, I, E>,
+    C: Clone + Send + Unpin,
+    E: Error,
+{
+    type Target = T::Stream;
 
     fn deref(&self) -> &Self::Target {
-        &self.underlying_io
+        &self.stream
     }
 }
 
-impl<T, C, I, E> DerefMut for ReconnectStream<T, C, I, E> {
+impl<T, C, I, E> DerefMut for ReconnectStream<T, C, I, E>
+where
+    T: UnderlyingStream<C, I, E>,
+    C: Clone + Send + Unpin,
+    E: Error,
+{
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.underlying_io
+        &mut self.stream
     }
 }
 
@@ -164,12 +186,11 @@ where
         }
 
         match result.unwrap() {
-            Ok(inner) => Ok(ReconnectStream {
+            Ok(stream) => Ok(ReconnectStream {
                 status: Status::Connected,
-                ctor_arg,
-                underlying_io: inner,
+                stream,
                 options,
-                _marker: PhantomData,
+                ctor_arg,
             }),
             Err(e) => {
                 error!("No more re-connect retries remaining. Never able to establish initial connection.");
@@ -249,7 +270,7 @@ where
                 cx.waker().wake_by_ref();
                 self.status = Status::Connected;
                 (self.options.on_connect_callback())();
-                self.underlying_io = underlying_io;
+                self.stream = underlying_io;
             }
             Poll::Ready(Err(err)) => {
                 error!("Connection attempt #{} failed: {:?}", attempt_num, err);
@@ -261,7 +282,7 @@ where
 
     fn is_write_disconnect_detected<X>(&self, poll_result: &Poll<Result<X, E>>) -> bool {
         match poll_result {
-            Poll::Ready(Err(err)) => self.is_write_disconnect_error(err),
+            Poll::Ready(Err(err)) => T::is_write_disconnect_error(err),
             _ => false,
         }
     }
@@ -269,7 +290,8 @@ where
 
 impl<T, C, I, E> Stream for ReconnectStream<T, C, I, E>
 where
-    T: UnderlyingStream<C, I, E> + Stream<Item = I>,
+    T: UnderlyingStream<C, I, E>,
+    T::Stream: Stream<Item = I>,
     C: Clone + Send + Unpin + 'static,
     I: Unpin,
     E: Error + Unpin,
@@ -279,9 +301,9 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.status {
             Status::Connected => {
-                let poll = ready!(Pin::new(&mut self.underlying_io).poll_next(cx));
+                let poll = ready!(Pin::new(&mut self.stream).poll_next(cx));
                 if let Some(poll) = poll {
-                    if self.is_read_disconnect_error(&poll) {
+                    if T::is_read_disconnect_error(&poll) {
                         self.on_disconnect(cx);
                         Poll::Pending
                     } else {
@@ -301,13 +323,14 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.underlying_io.size_hint()
+        self.stream.size_hint()
     }
 }
 
 impl<T, C, I, I2, E> Sink<I> for ReconnectStream<T, C, I2, E>
 where
-    T: UnderlyingStream<C, I2, E> + Sink<I, Error = E>,
+    T: UnderlyingStream<C, I2, E>,
+    T::Stream: Sink<I, Error = E>,
     C: Clone + Send + Unpin + 'static,
     I2: Unpin,
     E: Error + Unpin,
@@ -317,7 +340,7 @@ where
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.status {
             Status::Connected => {
-                let poll = Pin::new(&mut self.underlying_io).poll_ready(cx);
+                let poll = Pin::new(&mut self.stream).poll_ready(cx);
 
                 if self.is_write_disconnect_detected(&poll) {
                     self.on_disconnect(cx);
@@ -335,13 +358,13 @@ where
     }
 
     fn start_send(mut self: Pin<&mut Self>, item: I) -> Result<(), Self::Error> {
-        Pin::new(&mut self.underlying_io).start_send(item)
+        Pin::new(&mut self.stream).start_send(item)
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.status {
             Status::Connected => {
-                let poll = Pin::new(&mut self.underlying_io).poll_flush(cx);
+                let poll = Pin::new(&mut self.stream).poll_flush(cx);
 
                 if self.is_write_disconnect_detected(&poll) {
                     self.on_disconnect(cx);
@@ -361,7 +384,7 @@ where
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         match self.status {
             Status::Connected => {
-                let poll = Pin::new(&mut self.underlying_io).poll_close(cx);
+                let poll = Pin::new(&mut self.stream).poll_close(cx);
                 if poll.is_ready() {
                     // if completed, we are disconnected whether error or not
                     self.on_disconnect(cx);
