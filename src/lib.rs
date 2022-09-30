@@ -125,4 +125,5 @@ pub use crate::config::ReconnectOptions;
 pub use crate::stream::{ReconnectStream, UnderlyingStream};
 
 pub mod config;
+pub mod strategies;
 mod stream;
