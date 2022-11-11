@@ -95,8 +95,9 @@
 //! # #[cfg(not(feature = "not-send"))]
 //! type ReconnectWs = ReconnectStream<MyWs, String, Result<Message, WsError>, WsError>;
 //!
-//! # async fn spawn() {
+//! # async fn spawn(tx: tokio::sync::oneshot::Sender<()>) {
 //! #     let socket = TcpListener::bind("localhost:8000").await.unwrap();
+//! #     tx.send(()).unwrap();
 //! #     while let Ok((stream, _)) = socket.accept().await {
 //! #         tokio::spawn(async move {
 //! #             let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
@@ -110,7 +111,9 @@
 //! # #[cfg(not(feature = "not-send"))]
 //! # #[tokio::main(flavor = "current_thread")]
 //! # async fn main() {
-//! # let task = tokio::spawn(spawn());
+//! # let (tx, rx) = tokio::sync::oneshot::channel();
+//! # let task = tokio::spawn(spawn(tx));
+//! # rx.await.unwrap();
 //! let mut ws_stream = ReconnectWs::connect(String::from("ws://localhost:8000")).await.unwrap();
 //! ws_stream.send("hello world!".into()).await.unwrap();
 //! # task.abort();
