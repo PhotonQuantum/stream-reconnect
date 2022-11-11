@@ -38,6 +38,15 @@ In this example, we will see a drop in replacement for tungstenite's WebSocketSt
 automatically attempt to reconnect in the face of connectivity failures.
 
 ```rust
+use stream_reconnect::{UnderlyingStream, ReconnectStream};
+use std::future::Future;
+use std::io;
+use std::pin::Pin;
+use tokio::net::TcpStream;
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::tungstenite::{Message, error::Error as WsError};
+use futures::{SinkExt, Stream, Sink};
+
 struct MyWs;
 
 impl UnderlyingStream<String, Result<Message, WsError>, WsError> for MyWs {
@@ -45,7 +54,7 @@ impl UnderlyingStream<String, Result<Message, WsError>, WsError> for MyWs {
 
     // Establishes connection.
     // Additionally, this will be used when reconnect tries are attempted.
-    fn establish(addr: String) -> Pin<Box<dyn Future<Output=Result<Self::Stream, WsError>> + Send>> {
+    fn establish(addr: String) -> Pin<Box<dyn Future<Output = Result<Self::Stream, WsError>> + Send>> {
         Box::pin(async move {
             // In this case, we are trying to connect to the WebSocket endpoint
             let ws_connection = connect_async(addr).await.unwrap().0;
@@ -82,11 +91,8 @@ impl UnderlyingStream<String, Result<Message, WsError>, WsError> for MyWs {
 
 type ReconnectWs = ReconnectStream<MyWs, String, Result<Message, WsError>, WsError>;
 
-#[tokio::main]
-async fn main() {
-    let mut ws_stream: ReconnectWs = ReconnectWs::connect(String::from("wss://localhost:8000"));
-    ws_stream.send("hello world!").await.unwrap();
-}
+let mut ws_stream = ReconnectWs::connect(String::from("ws://localhost:8000")).await.unwrap();
+ws_stream.send("hello world!".into()).await.unwrap();
 ```
 
 ## License

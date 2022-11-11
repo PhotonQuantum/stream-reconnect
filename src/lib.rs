@@ -36,16 +36,18 @@
 //! seen below.
 //!
 //! ## Example on how a ReconnectStream item might be created
-//! ```
+//! ```rust
 //! use stream_reconnect::{UnderlyingStream, ReconnectStream};
 //! use std::future::Future;
 //! use std::io;
 //! use std::pin::Pin;
 //! use tokio::net::TcpStream;
+//! # use tokio::net::TcpListener;
 //! use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 //! use tokio_tungstenite::tungstenite::{Message, error::Error as WsError};
 //! use futures::{SinkExt, Stream, Sink};
-//! use std::task::{Context, Poll};
+//! # use futures::StreamExt;
+//! # use std::task::{Context, Poll};
 //!
 //! struct MyWs;
 //!
@@ -93,10 +95,25 @@
 //! # #[cfg(not(feature = "not-send"))]
 //! type ReconnectWs = ReconnectStream<MyWs, String, Result<Message, WsError>, WsError>;
 //!
+//! # async fn spawn() {
+//! #     let socket = TcpListener::bind("localhost:8000").await.unwrap();
+//! #     while let Ok((stream, _)) = socket.accept().await {
+//! #         tokio::spawn(async move {
+//! #             let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+//! #             while let Some(msg) = ws.next().await { //!
+//! #                 ws.send(msg.unwrap()).await.unwrap();
+//! #             }
+//! #         });
+//! #     }
+//! # }
+//! #
 //! # #[cfg(not(feature = "not-send"))]
-//! # async fn test() {
-//! let mut ws_stream: ReconnectWs = ReconnectWs::connect(String::from("wss://localhost:8000")).await.unwrap();
-//! ws_stream.send(Message::text(String::from("hello world!"))).await.unwrap();
+//! # #[tokio::main(flavor = "current_thread")]
+//! # async fn main() {
+//! # let task = tokio::spawn(spawn());
+//! let mut ws_stream = ReconnectWs::connect(String::from("ws://localhost:8000")).await.unwrap();
+//! ws_stream.send("hello world!".into()).await.unwrap();
+//! # task.abort();
 //! # }
 //! ```
 
