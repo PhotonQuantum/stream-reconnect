@@ -115,6 +115,9 @@
 //! ws_stream.send("hello world!".into()).await.unwrap();
 //! # task.abort();
 //! # }
+//! #
+//! # #[cfg(feature = "not-send")]
+//! # fn main() {}
 //! ```
 
 #[doc(inline)]
