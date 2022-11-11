@@ -13,78 +13,38 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         name: Checkout 🛎️
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-stable-${{ hashFiles('**/Cargo.lock') }}-lint
-      - uses: actions-rs/toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
         name: Setup Cargo Toolchain 🛎️
         with:
           components: rustfmt, clippy
-          toolchain: stable
-          default: true
-      - uses: actions-rs/cargo@v1
+      - run: cargo fmt -- --check
         name: Check Code Format 🔧
-        with:
-          command: fmt
-          args: -- --check
-      - uses: actions-rs/cargo@v1
+      - run: cargo clippy --all-targets
         name: Run Clippy Lints 🔨
-        with:
-          command: clippy
-          args: --all-targets
 
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         name: Checkout 🛎️
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-stable-${{ hashFiles('**/Cargo.lock') }}-test
-      - uses: actions-rs/toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
         name: Setup Cargo Toolchain 🛎️
-        with:
-          profile: minimal
-          toolchain: stable
-          default: true
-      - uses: actions-rs/cargo@v1
+      - run: cargo test --workspace
         name: Running Tests 🚀
-        with:
-          command: test
-          args: --workspace
 
   test-not-send:
     name: Test (not-send)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         name: Checkout 🛎️
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-stable-${{ hashFiles('**/Cargo.lock') }}-test
-      - uses: actions-rs/toolchain@v1
+      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
         name: Setup Cargo Toolchain 🛎️
-        with:
-          profile: minimal
-          toolchain: stable
-          default: true
-      - uses: actions-rs/cargo@v1
+      - run: cargo test --workspace --features not-send
         name: Running Tests 🚀
-        with:
-          command: test
-          args: --workspace --features not-send
