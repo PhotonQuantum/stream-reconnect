@@ -12,30 +12,7 @@ use rand::rngs::SmallRng;
 
 pub trait RngCoreClone: RngCore + Send + Sync + DynClone {}
 dyn_clone::clone_trait_object!(RngCoreClone);
-
-#[derive(Clone)]
-struct RngCoreCompat<R>(R);
-impl<R> RngCore for RngCoreCompat<R>
-where
-    R: RngCore,
-{
-    fn next_u32(&mut self) -> u32 {
-        self.0.next_u32()
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.0.next_u64()
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.0.fill_bytes(dest)
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
-        self.0.try_fill_bytes(dest)
-    }
-}
-impl<R> RngCoreClone for RngCoreCompat<R> where R: RngCore + Send + Sync + Clone {}
+impl<R> RngCoreClone for R where R: RngCore + Send + Sync + Clone {}
 
 /// Type used for defining the exponential backoff strategy.
 /// # Examples
@@ -82,7 +59,7 @@ impl ExpBackoffStrategy {
 
     /// Set the seed used to generate jitter. Otherwise, will set RNG via entropy.
     pub fn with_seed(self, seed: u64) -> Self {
-        self.with_rng(RngCoreCompat({
+        self.with_rng({
             #[cfg(feature = "std")]
             {
                 StdRng::seed_from_u64(seed)
@@ -91,7 +68,7 @@ impl ExpBackoffStrategy {
             {
                 SmallRng::seed_from_u64(seed)
             }
-        }))
+        })
     }
 
     /// Set the RNG used to generate jitter. Otherwise, will set RNG via entropy.
@@ -120,7 +97,7 @@ impl IntoIterator for ExpBackoffStrategy {
     fn into_iter(self) -> Self::IntoIter {
         let init = self.min.as_secs_f64();
         let rng = self.rng.clone().unwrap_or_else(|| {
-            Box::new(RngCoreCompat({
+            Box::new({
                 #[cfg(feature = "std")]
                 {
                     StdRng::from_entropy()
@@ -129,7 +106,7 @@ impl IntoIterator for ExpBackoffStrategy {
                 {
                     SmallRng::from_entropy()
                 }
-            }))
+            })
         });
         ExpBackoffIter {
             strategy: self,
