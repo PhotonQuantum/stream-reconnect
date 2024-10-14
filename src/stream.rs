@@ -1,12 +1,13 @@
-use std::error::Error;
-use std::future::Future;
-use std::iter::once;
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use std::time::Duration;
+use core::error::Error;
+use core::future::Future;
+use core::iter::once;
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use core::time::Duration;
 
+use alloc::boxed::Box;
 use futures::future::BoxFuture;
 use futures::{ready, FutureExt, Sink, Stream};
 use log::{debug, error, info};
@@ -146,6 +147,7 @@ where
 {
     /// Connects or creates a handle to the [UnderlyingStream] item,
     /// using the default reconnect options.
+    #[cfg(feature = "std")]
     pub async fn connect(ctor_arg: C) -> Result<Self, E> {
         let options = ReconnectOptions::new();
         Self::connect_with_options(ctor_arg, options).await
@@ -182,12 +184,7 @@ where
                             delay
                         );
 
-                        #[cfg(feature = "tokio")]
-                        let sleep_fut = tokio::time::sleep(delay);
-                        #[cfg(feature = "async-std")]
-                        let sleep_fut = async_std::task::sleep(delay);
-
-                        sleep_fut.await;
+                        options.sleep_provider()(delay).await;
 
                         debug!("Attempting reconnect #{} now.", counter + 1);
                     }
@@ -210,6 +207,8 @@ where
     }
 
     fn on_disconnect(mut self: Pin<&mut Self>, cx: &mut Context) {
+        let sleep_provider = self.options.sleep_provider();
+
         match &mut self.status {
             // initial disconnect
             Status::Connected => {
@@ -239,10 +238,7 @@ where
                 }
             };
 
-            #[cfg(feature = "tokio")]
-            let future_instant = tokio::time::sleep(next_duration);
-            #[cfg(feature = "async-std")]
-            let future_instant = async_std::task::sleep(next_duration);
+            let future_instant = sleep_provider(next_duration);
 
             reconnect_status.attempts_tracker.attempt_num += 1;
             let cur_num = reconnect_status.attempts_tracker.attempt_num;

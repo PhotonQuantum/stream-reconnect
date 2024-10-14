@@ -2,8 +2,9 @@
 //! specifically related to reconnect behavior.
 
 use crate::strategies::ExpBackoffStrategy;
-use std::sync::Arc;
-use std::time::Duration;
+use alloc::{boxed::Box, sync::Arc};
+use core::time::Duration;
+use futures::future::BoxFuture;
 
 pub type DurationIterator = Box<dyn Iterator<Item = Duration> + Send + Sync>;
 
@@ -27,6 +28,11 @@ impl ReconnectOptions {
     pub(crate) fn on_connect_fail_callback(&self) -> &Arc<dyn Fn() + Send + Sync> {
         &self.0.on_connect_fail_callback
     }
+    pub(crate) fn sleep_provider(
+        &self,
+    ) -> Arc<dyn Fn(Duration) -> BoxFuture<'static, ()> + Send + Sync> {
+        self.0.sleep_provider.clone()
+    }
 }
 
 #[derive(Clone)]
@@ -36,6 +42,7 @@ struct Inner {
     on_connect_callback: Arc<dyn Fn() + Send + Sync>,
     on_disconnect_callback: Arc<dyn Fn() + Send + Sync>,
     on_connect_fail_callback: Arc<dyn Fn() + Send + Sync>,
+    sleep_provider: Arc<dyn Fn(Duration) -> BoxFuture<'static, ()> + Send + Sync>,
 }
 
 impl ReconnectOptions {
@@ -43,6 +50,7 @@ impl ReconnectOptions {
     /// By default, the retries iterator waits longer and longer between reconnection attempts,
     /// until it eventually perpetually tries to reconnect every 30 minutes.
     #[allow(clippy::new_without_default)]
+    #[cfg(feature = "std")]
     pub fn new() -> Self {
         ReconnectOptions(Box::new(Inner {
             retries_to_attempt_fn: Arc::new(|| Box::new(ExpBackoffStrategy::default().into_iter())),
@@ -50,6 +58,35 @@ impl ReconnectOptions {
             on_connect_callback: Arc::new(|| {}),
             on_disconnect_callback: Arc::new(|| {}),
             on_connect_fail_callback: Arc::new(|| {}),
+            sleep_provider: Arc::new(|duration| {
+                Box::pin({
+                    #[cfg(feature = "tokio")]
+                    {
+                        tokio::time::sleep(duration)
+                    }
+                    #[cfg(feature = "async-std")]
+                    {
+                        async_std::task::sleep(delay)
+                    }
+                })
+            }),
+        }))
+    }
+
+    /// By default, the [ReconnectStream](crate::ReconnectStream) will not try to reconnect if the first connect attempt fails.
+    /// By default, the retries iterator waits longer and longer between reconnection attempts,
+    /// until it eventually perpetually tries to reconnect every 30 minutes.
+    #[allow(clippy::new_without_default)]
+    pub fn with_sleep_provider(
+        sleep_provider: impl Fn(Duration) -> BoxFuture<'static, ()> + Send + Sync + 'static,
+    ) -> Self {
+        ReconnectOptions(Box::new(Inner {
+            retries_to_attempt_fn: Arc::new(|| Box::new(ExpBackoffStrategy::default().into_iter())),
+            exit_if_first_connect_fails: true,
+            on_connect_callback: Arc::new(|| {}),
+            on_disconnect_callback: Arc::new(|| {}),
+            on_connect_fail_callback: Arc::new(|| {}),
+            sleep_provider: Arc::new(sleep_provider),
         }))
     }
 

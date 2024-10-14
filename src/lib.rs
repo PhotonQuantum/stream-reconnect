@@ -123,6 +123,15 @@
 //! # fn main() {}
 //! ```
 
+#![cfg_attr(not(any(feature = "std", test)), no_std)]
+#![warn(
+    clippy::alloc_instead_of_core,
+    clippy::std_instead_of_alloc,
+    clippy::std_instead_of_core
+)]
+
+extern crate alloc;
+
 #[doc(inline)]
 pub use crate::config::ReconnectOptions;
 pub use crate::stream::{ReconnectStream, UnderlyingStream};
