@@ -7,7 +7,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use futures::{ready, Sink, Stream};
+use futures::future::BoxFuture;
+use futures::{ready, FutureExt, Sink, Stream};
 use log::{debug, error, info};
 
 use crate::config::ReconnectOptions;
@@ -24,12 +25,12 @@ where
     /// The creation function is used by [ReconnectStream] in order to establish both the initial IO connection
     /// in addition to performing reconnects.
     #[cfg(feature = "not-send")]
-    fn establish(ctor_arg: C) -> Pin<Box<dyn Future<Output = Result<Self::Stream, E>>>>;
+    fn establish(ctor_arg: C) -> impl Future<Output = Result<Self::Stream, E>>;
 
     /// The creation function is used by [ReconnectStream] in order to establish both the initial IO connection
     /// in addition to performing reconnects.
     #[cfg(not(feature = "not-send"))]
-    fn establish(ctor_arg: C) -> Pin<Box<dyn Future<Output = Result<Self::Stream, E>> + Send>>;
+    fn establish(ctor_arg: C) -> impl Future<Output = Result<Self::Stream, E>> + Send;
 
     /// When sink send experience an `Error` during operation, it does not necessarily mean
     /// it is a disconnect/termination (ex: WouldBlock).
@@ -62,9 +63,9 @@ where
 {
     attempts_tracker: AttemptsTracker,
     #[cfg(not(feature = "not-send"))]
-    reconnect_attempt: Pin<Box<dyn Future<Output = Result<T::Stream, E>> + Send>>,
+    reconnect_attempt: BoxFuture<'static, Result<T::Stream, E>>,
     #[cfg(feature = "not-send")]
-    reconnect_attempt: Pin<Box<dyn Future<Output = Result<T::Stream, E>>>>,
+    reconnect_attempt: LocalBoxFuture<'static, Result<T::Stream, E>>,
     _marker: PhantomData<(C, I, E)>,
 }
 
@@ -80,7 +81,7 @@ where
                 attempt_num: 0,
                 retries_remaining: (options.retries_to_attempt_fn())(),
             },
-            reconnect_attempt: Box::pin(async { unreachable!("Not going to happen") }),
+            reconnect_attempt: async { unreachable!("Not going to happen") }.boxed(),
             _marker: PhantomData,
         }
     }
@@ -245,14 +246,12 @@ where
 
             reconnect_status.attempts_tracker.attempt_num += 1;
             let cur_num = reconnect_status.attempts_tracker.attempt_num;
-
-            let reconnect_attempt = async move {
+            reconnect_status.reconnect_attempt = async move {
                 future_instant.await;
                 debug!("Attempting reconnect #{} now.", cur_num);
                 T::establish(ctor_arg).await
-            };
-
-            reconnect_status.reconnect_attempt = Box::pin(reconnect_attempt);
+            }
+            .boxed();
 
             debug!(
                 "Will perform reconnect attempt #{} in {:?}.",
