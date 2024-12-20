@@ -15,7 +15,7 @@ To use with your project, add the following to your Cargo.toml:
 stream-reconnect = "0.3"
 ```
 
-*Minimum supported rust version: 1.43.1*
+_Minimum supported rust version: 1.43.1_
 
 ## Runtime Support
 
@@ -54,12 +54,10 @@ impl UnderlyingStream<String, Result<Message, WsError>, WsError> for MyWs {
 
     // Establishes connection.
     // Additionally, this will be used when reconnect tries are attempted.
-    fn establish(addr: String) -> Pin<Box<dyn Future<Output = Result<Self::Stream, WsError>> + Send>> {
-        Box::pin(async move {
-            // In this case, we are trying to connect to the WebSocket endpoint
-            let ws_connection = connect_async(addr).await.unwrap().0;
-            Ok(ws_connection)
-        })
+    async fn establish(addr: String) -> Result<Self::Stream, WsError> {
+        // In this case, we are trying to connect to the WebSocket endpoint
+        let ws_connection = connect_async(addr).await.unwrap().0;
+        Ok(ws_connection)
     }
 
     // The following errors are considered disconnect errors.

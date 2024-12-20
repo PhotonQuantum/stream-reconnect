@@ -1,6 +1,18 @@
 //! Provides the strategies used in stubborn io items
-use rand::{rngs::StdRng, Rng, SeedableRng};
-use std::time::Duration;
+use alloc::boxed::Box;
+use core::time::Duration;
+use dyn_clone::DynClone;
+use rand::{Rng, RngCore, SeedableRng};
+
+#[cfg(feature = "std")]
+use rand::rngs::StdRng;
+
+#[cfg(not(feature = "std"))]
+use rand::rngs::SmallRng;
+
+pub trait RngCoreClone: RngCore + Send + Sync + DynClone {}
+dyn_clone::clone_trait_object!(RngCoreClone);
+impl<R> RngCoreClone for R where R: RngCore + Send + Sync + Clone {}
 
 /// Type used for defining the exponential backoff strategy.
 /// # Examples
@@ -24,7 +36,7 @@ pub struct ExpBackoffStrategy {
     max: Option<Duration>,
     factor: f64,
     jitter: f64,
-    seed: Option<u64>,
+    rng: Option<Box<dyn RngCoreClone + Send + Sync>>,
 }
 
 impl ExpBackoffStrategy {
@@ -34,7 +46,7 @@ impl ExpBackoffStrategy {
             max: None,
             factor,
             jitter,
-            seed: None,
+            rng: None,
         }
     }
 
@@ -46,8 +58,22 @@ impl ExpBackoffStrategy {
     }
 
     /// Set the seed used to generate jitter. Otherwise, will set RNG via entropy.
-    pub fn with_seed(mut self, seed: u64) -> Self {
-        self.seed = Some(seed);
+    pub fn with_seed(self, seed: u64) -> Self {
+        self.with_rng({
+            #[cfg(feature = "std")]
+            {
+                StdRng::seed_from_u64(seed)
+            }
+            #[cfg(not(feature = "std"))]
+            {
+                SmallRng::seed_from_u64(seed)
+            }
+        })
+    }
+
+    /// Set the RNG used to generate jitter. Otherwise, will set RNG via entropy.
+    pub fn with_rng<R: RngCoreClone + Send + Sync + 'static>(mut self, rng: R) -> Self {
+        self.rng = Some(Box::new(rng));
         self
     }
 }
@@ -59,7 +85,7 @@ impl Default for ExpBackoffStrategy {
             max: Some(Duration::from_secs(30 * 60)),
             factor: 2.0,
             jitter: 0.05,
-            seed: None,
+            rng: None,
         }
     }
 }
@@ -70,11 +96,18 @@ impl IntoIterator for ExpBackoffStrategy {
 
     fn into_iter(self) -> Self::IntoIter {
         let init = self.min.as_secs_f64();
-        let rng = match self.seed {
-            Some(seed) => StdRng::seed_from_u64(seed),
-            None => StdRng::from_entropy(),
-        };
-
+        let rng = self.rng.clone().unwrap_or_else(|| {
+            Box::new({
+                #[cfg(feature = "std")]
+                {
+                    StdRng::from_entropy()
+                }
+                #[cfg(not(feature = "std"))]
+                {
+                    SmallRng::from_entropy()
+                }
+            })
+        });
         ExpBackoffIter {
             strategy: self,
             init,
@@ -89,7 +122,7 @@ pub struct ExpBackoffIter {
     strategy: ExpBackoffStrategy,
     init: f64,
     pow: u32,
-    rng: StdRng,
+    rng: Box<dyn RngCoreClone>,
 }
 
 impl Iterator for ExpBackoffIter {
@@ -110,7 +143,7 @@ impl Iterator for ExpBackoffIter {
 #[cfg(test)]
 mod test {
     use super::ExpBackoffStrategy;
-    use std::time::Duration;
+    use core::time::Duration;
 
     #[test]
     fn test_exponential_backoff_jitter_values() {
